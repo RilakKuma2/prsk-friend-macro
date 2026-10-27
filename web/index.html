@@ -1,0 +1,924 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#f2f4f6" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#101012" media="(prefers-color-scheme: dark)">
+<title>셐 매크로</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+:root{
+  --bg:#f2f4f6;--surface:#fff;--surface-2:#f9fafb;--fill:#f2f4f6;--fill-strong:#e5e8eb;
+  --text:#191f28;--text-2:#4e5968;--text-3:#8b95a1;--line:#e5e8eb;
+  --accent:#3182f6;--accent-press:#1b64da;--accent-weak:#e8f3ff;
+  --green:#03b26c;--red:#f04452;--red-weak:#ffeeee;--orange:#fe9800;
+  --shadow:0 1px 2px rgba(0,0,0,.04);--sheet-shadow:0 -8px 40px rgba(0,0,0,.12);
+  --modal-shadow:0 28px 72px rgba(0,0,0,.24),0 6px 18px rgba(0,0,0,.12);
+  --scrim:rgba(0,0,0,.36);
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#101012;--surface:#1c1c1f;--surface-2:#232327;--fill:#2a2a2f;--fill-strong:#36363c;
+  --text:#f2f2f5;--text-2:#b0b3ba;--text-3:#7e828b;--line:#2c2c31;
+  --accent:#4593fc;--accent-press:#2f7ff0;--accent-weak:#1d2b40;
+  --green:#21c17a;--red:#ff5a66;--red-weak:#3a1f22;--orange:#ffa826;
+  --shadow:none;--sheet-shadow:0 -8px 40px rgba(0,0,0,.5);--scrim:rgba(0,0,0,.6);
+  --modal-shadow:0 28px 72px rgba(0,0,0,.75),0 0 0 1px rgba(255,255,255,.07);
+}}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html{background:var(--bg)}
+body{font-family:"Pretendard Variable",Pretendard,-apple-system,BlinkMacSystemFont,"Segoe UI","Malgun Gothic",sans-serif;
+  color:var(--text);background:var(--bg);font-size:15px;line-height:1.5;letter-spacing:-.01em;-webkit-font-smoothing:antialiased;min-height:100vh}
+button,input,select{font:inherit;color:inherit;letter-spacing:inherit}
+button{border:0;background:none;cursor:pointer}
+.wrap{max-width:1240px;margin:0 auto;padding:0 24px 140px}
+
+/* Top */
+header{display:flex;align-items:center;justify-content:space-between;padding:28px 0 8px;gap:12px}
+h1{font-size:22px;font-weight:700;letter-spacing:-.02em}
+.top-actions{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end}
+.ghost{height:36px;padding:0 12px;border-radius:10px;color:var(--text-2);font-size:14px;font-weight:500}
+.ghost:hover{background:var(--fill)}
+.ghost:active{background:var(--fill-strong)}
+.ghost.icon{width:36px;padding:0;display:grid;place-items:center}
+
+.summary{display:flex;gap:28px;padding:18px 0 22px;align-items:flex-end}
+.summary div{display:flex;flex-direction:column}
+.summary b{font-size:28px;font-weight:700;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.summary span{font-size:13px;color:var(--text-3)}
+.summary .sel-actions{margin-left:auto;flex-direction:row;gap:6px}
+.addvm{align-self:center;height:34px;padding:0 14px;border-radius:17px;background:var(--accent-weak);color:var(--accent);font-size:14px;font-weight:600;white-space:nowrap}
+.addvm:active{opacity:.8}
+.addvm.plain{background:var(--fill);color:var(--text-2)}
+.addvm.red{background:var(--red-weak);color:var(--red)}
+.addvm:disabled{opacity:.4}
+.sel-actions button{height:34px;padding:0 14px;border-radius:17px;background:var(--fill);font-size:14px;font-weight:600;color:var(--text-2)}
+.sel-actions button:not(:disabled):active{background:var(--fill-strong)}
+.sel-actions button:disabled{opacity:.4}
+.lockbtn{position:absolute;top:8px;right:8px;width:30px;height:30px;border-radius:50%;background:rgba(0,0,0,.28);display:grid;place-items:center;color:#fff}
+.lockbtn svg{width:15px;height:15px}
+.card.locked .lockbtn{background:#fff;color:#191f28}
+.card.locked .check{display:none}
+.card.locked .thumb img{filter:grayscale(.6) opacity(.55)}
+
+/* Cards */
+.grid{display:grid;grid-template-columns:minmax(0,1fr);gap:12px}
+.grid.two{grid-template-columns:repeat(2,minmax(0,1fr))}
+.card{display:flex;align-items:center;background:var(--surface);border-radius:20px;overflow:hidden;box-shadow:var(--shadow);cursor:pointer;
+  transition:transform .15s ease,box-shadow .15s ease;position:relative;outline:2px solid transparent;outline-offset:-2px}
+.card:active{transform:scale(.985)}
+.card.sel{outline-color:var(--accent)}
+.thumb{width:min(240px,40%);flex:none;margin:14px 0 14px 14px;border-radius:14px;aspect-ratio:16/9;background:var(--fill);position:relative;overflow:hidden;cursor:pointer}
+.thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.thumb .empty{position:absolute;inset:0;display:grid;place-items:center;color:var(--text-3);font-size:13px}
+.thumb.off img{filter:grayscale(1) opacity(.35)}
+.check{position:absolute;top:8px;left:8px;width:26px;height:26px;border-radius:50%;background:rgba(0,0,0,.28);
+  border:1.5px solid rgba(255,255,255,.9);display:grid;place-items:center;transition:background .12s}
+.check svg{opacity:0}
+.card.sel .check{background:var(--accent);border-color:var(--accent)}
+.card.sel .check svg{opacity:1}
+.body{flex:1;min-width:0;padding:14px 18px}
+.row{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.name{font-size:17px;font-weight:700}
+.sub{font-size:13px;color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chip{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:13px;font-size:12.5px;font-weight:600;
+  background:var(--fill);color:var(--text-2);white-space:nowrap}
+.chip i{width:6px;height:6px;border-radius:50%;background:currentColor}
+.chip.run{background:var(--accent-weak);color:var(--accent)}
+.chip.run i{animation:pulse 1.6s infinite}
+.chip.err{background:var(--red-weak);color:var(--red)}
+.chip.done{color:var(--green)}
+.chip.wait{color:var(--orange)}
+@keyframes pulse{50%{opacity:.25}}
+.stage{margin-top:12px;font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.step{margin-top:2px;font-size:13px;color:var(--text-3);display:flex;justify-content:space-between;gap:8px}
+.step code{font-family:ui-monospace,"Cascadia Code",Consolas,monospace;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bar{height:4px;border-radius:2px;background:var(--fill);margin-top:12px;overflow:hidden}
+.bar div{height:100%;background:var(--accent);border-radius:2px;transition:width .4s ease}
+
+/* Action bar */
+.dock{position:fixed;left:50%;bottom:24px;transform:translate(-50%,140%);transition:transform .28s cubic-bezier(.2,.8,.2,1);
+  background:var(--surface);border-radius:20px;box-shadow:0 8px 40px rgba(0,0,0,.16);padding:10px;display:flex;align-items:center;gap:6px;z-index:20;
+  max-width:calc(100% - 32px)}
+.dock.show{transform:translate(-50%,0)}
+.dock .count{padding:0 12px 0 10px;font-size:14px;font-weight:600;white-space:nowrap}
+.btn{height:44px;padding:0 18px;border-radius:14px;font-size:15px;font-weight:600;white-space:nowrap;transition:background .12s,transform .1s}
+.btn:active{transform:scale(.97)}
+.btn.primary{background:var(--accent);color:#fff}
+.btn.primary:hover{background:var(--accent-press)}
+.btn.tonal{background:var(--fill);color:var(--text)}
+.btn.tonal:hover{background:var(--fill-strong)}
+.btn.danger{background:var(--red-weak);color:var(--red)}
+.btn.block{width:100%;height:54px;border-radius:16px;font-size:16px}
+.btn:disabled{opacity:.4;pointer-events:none}
+
+/* Sheets */
+.scrim{position:fixed;inset:0;background:var(--scrim);opacity:0;pointer-events:none;transition:opacity .2s;z-index:30}
+.scrim.show{opacity:1;pointer-events:auto}
+.sheet{position:fixed;z-index:31;background:var(--surface);display:flex;flex-direction:column;
+  left:50%;top:50%;width:min(560px,calc(100% - 32px));max-height:calc(100% - 48px);border-radius:24px;box-shadow:var(--modal-shadow);
+  transform:translate(-50%,-46%) scale(.98);opacity:0;pointer-events:none;transition:transform .25s cubic-bezier(.2,.8,.2,1),opacity .2s}
+.sheet.wide{width:min(980px,calc(100% - 32px))}
+.sheet.show{transform:translate(-50%,-50%);opacity:1;pointer-events:auto}
+.sheet:not(.show){visibility:hidden;transition:transform .25s cubic-bezier(.2,.8,.2,1),opacity .2s,visibility 0s .25s}
+.sheet-head{display:flex;align-items:center;justify-content:space-between;padding:22px 24px 8px}
+.sheet-head h2{font-size:20px;font-weight:700;letter-spacing:-.02em}
+.sheet-head p{font-size:13px;color:var(--text-3);margin-top:2px}
+.x{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;color:var(--text-3)}
+.x:hover{background:var(--fill)}
+.sheet-body{padding:8px 24px 24px;overflow:auto}
+.sheet-foot{padding:0 24px 24px}
+
+.label{font-size:13px;font-weight:600;color:var(--text-3);margin:20px 0 8px}
+.seg{display:flex;background:var(--fill);border-radius:12px;padding:3px;gap:2px}
+.seg button{flex:1;height:38px;border-radius:10px;font-size:14px;font-weight:600;color:var(--text-3);transition:background .15s,color .15s}
+.seg button.on{background:var(--surface);color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.seg.units button{height:48px;display:grid;place-items:center;padding:0 6px;position:relative}
+.seg.units img{height:30px;max-width:100%;object-fit:contain;opacity:.45;filter:grayscale(.6);transition:opacity .15s,filter .15s}
+.seg.units button.on img{opacity:1;filter:none}
+.seg.units button.ev::after{content:"";position:absolute;top:6px;right:7px;width:6px;height:6px;border-radius:50%;background:var(--accent)}
+.unit-ic{height:16px;max-width:56px;object-fit:contain;vertical-align:middle}
+.list{display:flex;flex-direction:column;gap:2px}
+.opt{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;text-align:left;font-size:15px}
+.opt:hover{background:var(--surface-2)}
+.radio{width:22px;height:22px;border-radius:50%;border:2px solid var(--fill-strong);flex:none;transition:border .12s}
+.opt.on .radio{border:7px solid var(--accent)}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.tog{height:36px;padding:0 14px;border-radius:18px;background:var(--fill);font-size:14px;font-weight:500;color:var(--text-2)}
+.tog.on{background:var(--accent-weak);color:var(--accent);font-weight:600}
+.tog .n{font-size:12px;opacity:.7;margin-right:4px;font-variant-numeric:tabular-nums}
+.field{width:100%;height:48px;border-radius:12px;border:0;background:var(--fill);padding:0 14px;font-size:15px;outline:none}
+.field:focus{box-shadow:0 0 0 2px var(--accent) inset}
+select.field{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%238b95a1' stroke-width='1.8' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 14px center}
+.switch{display:flex;align-items:center;justify-content:space-between;padding:14px 0;font-size:15px;cursor:pointer}
+.switch small{display:block;font-size:13px;color:var(--text-3)}
+.sw{width:50px;height:30px;border-radius:15px;background:var(--fill-strong);position:relative;flex:none;transition:background .2s}
+.sw::after{content:"";position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.2);transition:transform .2s}
+.sw.on{background:var(--accent)}
+.sw.on::after{transform:translateX(20px)}
+.ldnote{margin:4px 0 18px}
+.links{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.linkbtn{display:inline-flex;align-items:center;height:34px;padding:0 12px;border-radius:10px;background:var(--fill);color:var(--accent);font-size:13.5px;font-weight:600;text-decoration:none}
+.ldnote .linkbtn{background:var(--surface)}
+.prov{margin-top:16px;padding:14px 16px;border-radius:14px;background:var(--accent-weak);font-size:14px;display:flex;flex-direction:column;gap:4px}
+.prov.failed{background:var(--red-weak)}
+.prov small{color:var(--text-3);font-size:12.5px}
+.prov .btn{align-self:flex-start;height:34px;margin-top:6px;font-size:13.5px}
+#provPill{cursor:pointer;align-self:center}
+.ldnote .ldrow{display:flex;gap:8px;margin-top:10px}
+.ldnote .field{height:42px;background:var(--surface);color:var(--text)}
+.ldnote .btn{height:42px}
+.note{margin-top:16px;padding:14px 16px;border-radius:14px;background:var(--red-weak);color:var(--red);font-size:14px;font-weight:500}
+
+/* Detail */
+.detail{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:24px}
+.screen{position:relative;border-radius:16px;overflow:hidden;background:#000;aspect-ratio:16/9}
+.screen img{width:100%;height:100%;object-fit:contain;display:block;user-select:none;-webkit-user-drag:none}
+.screen.tap{cursor:crosshair;box-shadow:0 0 0 2px var(--accent)}
+.screen .ripple{position:absolute;width:28px;height:28px;margin:-14px 0 0 -14px;border-radius:50%;border:2px solid #fff;animation:rip .5s ease-out forwards;pointer-events:none}
+@keyframes rip{from{transform:scale(.4);opacity:1}to{transform:scale(1.6);opacity:0}}
+.screen .stamp{position:absolute;right:10px;bottom:10px;padding:3px 8px;border-radius:8px;background:rgba(0,0,0,.55);color:#fff;font-size:12px}
+.tools{display:flex;gap:6px;margin-top:12px;flex-wrap:wrap;align-items:center}
+.tools .btn{height:38px;padding:0 14px;font-size:14px;border-radius:12px}
+.tools .spacer{flex:1}
+.side h3{font-size:13px;font-weight:600;color:var(--text-3);margin:4px 0 8px}
+.side .group{display:flex;flex-direction:column;gap:6px;margin-bottom:20px}
+.side .group .btn{width:100%;height:44px}
+.kv{display:flex;justify-content:space-between;font-size:14px;padding:6px 0}
+.kv span:first-child{color:var(--text-3)}
+.kv span:last-child{font-weight:600;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px}
+.log{margin-top:16px;background:var(--surface-2);border-radius:14px;padding:14px 16px;height:220px;overflow:auto;
+  font-family:ui-monospace,"Cascadia Code",Consolas,monospace;font-size:12px;line-height:1.65;color:var(--text-2);white-space:pre-wrap;word-break:break-all}
+.log .e{color:var(--red)}
+.log .c{color:var(--accent)}
+.url{display:flex;gap:8px;align-items:center;padding:12px 14px;background:var(--fill);border-radius:12px;margin-top:8px;font-size:13px;word-break:break-all}
+.url span{flex:1}
+.url button{color:var(--accent);font-weight:600;font-size:13px;flex:none}
+
+.inv{margin-top:10px;display:flex;align-items:center;gap:6px;white-space:nowrap;overflow:hidden;font-size:12.5px;color:var(--text-3);min-height:18px}
+.inv b{color:var(--text-2);font-weight:600}
+.inv .tag{padding:1px 7px;border-radius:6px;background:var(--fill);font-weight:600;font-size:11.5px;color:var(--text-2)}
+.inv .tag.perm{background:var(--accent-weak);color:var(--accent)}
+.inv .ok{color:var(--green)}.inv .wait{color:var(--orange)}.inv .bad{color:var(--red)}
+.loop{display:flex;align-items:center;justify-content:space-between;padding:14px 0 4px;font-size:15px}
+.loop small{display:block;font-size:13px;color:var(--text-3);margin-top:2px}
+.stepper{display:flex;align-items:center;background:var(--fill);border-radius:12px;padding:3px;flex:none}
+.stepper button{width:36px;height:34px;border-radius:10px;font-size:18px;font-weight:600;color:var(--text-2)}
+.stepper button:not(:disabled):hover{background:var(--surface)}
+.stepper button:disabled{opacity:.35}
+.stepper span{min-width:44px;text-align:center;font-weight:700;font-variant-numeric:tabular-nums}
+.invite-box{background:var(--surface-2);border-radius:14px;padding:14px;margin-bottom:20px}
+.invite-box .field{height:44px;background:var(--surface);font-family:ui-monospace,"Cascadia Code",Consolas,monospace;font-size:14px;letter-spacing:.02em}
+.invite-box .seg{margin-top:8px;background:var(--fill)}
+.invite-box .acts{display:flex;gap:6px;margin-top:8px}
+.invite-box .acts .btn{flex:1;height:40px;font-size:14px;border-radius:12px}
+.invite-box .cur{font-size:12.5px;color:var(--text-3);margin-bottom:8px}
+.invite-box .lim{padding:10px 2px 0;font-size:14px}
+.invite-box .lim .stepper{background:var(--fill)}
+#invQueue:not(:empty){margin-bottom:8px}
+.qrow{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text-3);padding:6px 2px;border-top:1px solid var(--fill)}
+.qrow code{font-family:ui-monospace,"Cascadia Code",Consolas,monospace;color:var(--text-2);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.qrow .qn{width:14px;font-weight:600}
+.qrow button{width:26px;height:26px;border-radius:13px;color:var(--text-3);flex:none}
+.qrow button:hover{background:var(--fill)}
+#invCur{display:flex;align-items:center;gap:8px}
+#invCur .txt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mini{display:flex;align-items:center;background:var(--fill);border-radius:9px;padding:2px;flex:none}
+.mini button,.qrow .mini button{width:24px;height:24px;border-radius:7px;font-size:15px;font-weight:600;color:var(--text-2)}
+.mini button:not(:disabled):hover{background:var(--surface)}
+.mini button:disabled{opacity:.35}
+.mini b{min-width:36px;text-align:center;font-size:12px;font-weight:700;color:var(--text-2);font-variant-numeric:tabular-nums}
+.invite-box .cur code{font-family:ui-monospace,"Cascadia Code",Consolas,monospace;color:var(--text-2)}
+.hist{margin-top:20px}
+.hist h3{font-size:13px;font-weight:600;color:var(--text-3);margin-bottom:8px}
+.hrow{display:flex;gap:12px;align-items:center;padding:8px;border-radius:14px}
+.hrow:hover{background:var(--surface-2)}
+.hrow img{width:120px;aspect-ratio:16/9;object-fit:cover;border-radius:10px;background:var(--fill);cursor:zoom-in;flex:none}
+.hrow .noimg{width:120px;aspect-ratio:16/9;border-radius:10px;background:var(--fill);flex:none}
+.hrow .who{font-size:15px;font-weight:700}
+.hrow .meta{font-size:12.5px;color:var(--text-3);margin-top:2px}
+.hrow code{font-family:ui-monospace,"Cascadia Code",Consolas,monospace;font-size:12px;color:var(--text-2)}
+.res{font-size:12px;font-weight:600;margin-left:6px}
+.hrow .rw{margin-top:4px;font-size:12.5px;font-weight:600;color:var(--accent);padding:0}
+.res.ok{color:var(--green)}.res.bad{color:var(--red)}.res.wait{color:var(--orange)}
+.lightbox{position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:60;display:none;place-items:center;padding:24px;cursor:zoom-out}
+.lightbox.show{display:grid}
+.lightbox img{max-width:100%;max-height:100%;border-radius:12px}
+.toast{position:fixed;left:50%;top:20px;transform:translate(-50%,-160%);opacity:0;background:#191f28;color:#fff;padding:12px 18px;border-radius:14px;
+  font-size:14px;font-weight:500;z-index:50;transition:transform .3s cubic-bezier(.2,.8,.2,1),opacity .2s;max-width:calc(100% - 32px);box-shadow:0 8px 30px rgba(0,0,0,.2);pointer-events:none}
+.toast.show{transform:translate(-50%,0);opacity:1}
+.toast.err{background:var(--red)}
+@media (prefers-color-scheme:dark){.toast{background:#3a3a40}}
+
+@media (max-width:1180px){
+  .grid.two{grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:820px){
+  .detail{grid-template-columns:1fr}
+}
+@media (max-width:640px){
+  .wrap{padding:0 16px 150px}
+  header{padding-top:20px}
+  .summary{gap:20px}
+  .summary b{font-size:24px}
+  .sheet,.sheet.wide{left:0;right:0;top:auto;bottom:0;width:100%;max-height:92%;border-radius:24px 24px 0 0;transform:translateY(100%);opacity:1;box-shadow:var(--sheet-shadow)}
+  .sheet.show{transform:translateY(0)}
+  .sheet-foot{padding-bottom:calc(20px + env(safe-area-inset-bottom))}
+  .dock{left:16px;right:16px;bottom:16px;transform:translateY(160%);max-width:none;flex-wrap:wrap}
+  .dock.show{transform:translateY(0)}
+  .dock .count{width:100%;padding:4px 8px 6px}
+  .dock .btn{flex:1;padding:0 8px}
+  .ghost .t{display:none}
+  header{flex-direction:column;align-items:flex-start;gap:6px}
+  .top-actions{margin-left:-12px;justify-content:flex-start}
+  .grid{gap:10px}
+  .card{border-radius:18px}
+  .thumb{width:118px;margin:12px 0 12px 12px;border-radius:12px}
+  .check{top:6px;left:6px;width:22px;height:22px}
+  .lockbtn{top:6px;right:6px;width:24px;height:24px}
+  .lockbtn svg{width:12px;height:12px}
+  .sel-actions button{height:30px;padding:0 11px;font-size:13px}
+  .body{padding:12px 14px}
+  .name{font-size:16px}
+  .stage{margin-top:6px;font-size:14px}
+  .bar{margin-top:8px}
+  .chip{height:24px;padding:0 9px;font-size:12px}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>셐 매크로</h1>
+    <div class="top-actions">
+      <button class="ghost" id="captureAll" title="모든 VM 화면 새로 캡쳐">캡쳐<span class="t"> 전체</span></button>
+      <button class="ghost" id="arrange">창 정렬</button>
+      <button class="ghost" id="validate">검증</button>
+      <button class="ghost" id="vmBtn">VM 관리</button>
+      <button class="ghost" id="remote">원격 접속</button>
+      <button class="ghost icon" id="langBtn" aria-label="언어"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.7 3.8 5.7 3.8 9s-1.3 6.3-3.8 9c-2.5-2.7-3.8-5.7-3.8-9S9.5 5.7 12 3z"/></svg></button>
+    </div>
+  </header>
+  <div class="note ldnote" id="ldNote" style="display:none">LD플레이어를 찾지 못했어요. ldconsole.exe가 있는 폴더를 알려주세요.
+    <div class="ldrow"><input class="field" id="ldPath" placeholder="예: D:\LDPlayer\LDPlayer9" spellcheck="false"><button class="btn primary" id="ldSave">저장</button></div>
+    <div class="links" id="ldLinks"></div></div>
+  <section class="summary">
+    <div><b id="sRun">0</b><span>실행 중</span></div>
+    <div><b id="sVm">0</b><span>VM 켜짐</span></div>
+    <div><b id="sDone">0</b><span>완료</span></div>
+    <button class="addvm" id="vmNew">＋ VM 만들기</button>
+    <button class="addvm plain" id="cloneSel" style="display:none">복제</button>
+    <button class="addvm red" id="removeSel" style="display:none">VM 삭제</button>
+    <span class="chip run" id="provPill" style="display:none"><i></i><em style="font-style:normal"></em></span>
+    <div class="sel-actions"><button id="selectAll">전체 선택</button><button id="selectNone">선택 해제</button></div>
+  </section>
+  <main class="grid" id="grid"></main>
+</div>
+
+<div class="dock" id="dock">
+  <span class="count" id="selCount"></span>
+  <button class="btn primary" data-run="resume">이어하기</button>
+  <button class="btn tonal" data-run="stages">단계 실행</button>
+  <button class="btn tonal" data-run="run">처음부터</button>
+  <button class="btn danger" id="stopSel">중지</button>
+</div>
+
+<div class="scrim" id="scrim"></div>
+
+<!-- Run sheet -->
+<section class="sheet" id="runSheet">
+  <div class="sheet-head"><div><h2 id="runTitle">실행</h2><p id="runTargets"></p></div><button class="x" data-close>✕</button></div>
+  <div class="sheet-body">
+    <div class="seg" id="modeSeg">
+      <button data-mode="resume">이어하기</button><button data-mode="stages">단계 실행</button><button data-mode="run">처음부터</button>
+    </div>
+    <div id="paneResume">
+      <div class="label">시작 지점</div>
+      <div class="list" id="points"></div>
+      <select class="field" id="pointDetail" style="margin-top:8px"><option value="">세부 지점 직접 선택</option></select>
+    </div>
+    <div id="paneStages">
+      <div class="label">단계 <span id="stageHint" style="font-weight:400"></span></div>
+      <div class="chips" id="stageChips"></div>
+      <div class="loop" id="paneLoop"><div>반복<small id="loopHint"></small></div>
+        <div class="stepper"><button id="loopDown" aria-label="줄이기">−</button><span id="loopN">1회</span><button id="loopUp" aria-label="늘리기">+</button></div></div>
+      <div class="note" id="resetNote">게임 데이터를 지우고 새 계정으로 시작해요. 지금 계정이 필요하면 먼저 인계 코드를 발급하거나 계정 연동을 해두세요.</div>
+    </div>
+    <div id="paneUnit">
+      <div class="label">유닛 <span id="unitHint" style="font-weight:400"></span></div>
+      <div class="seg" id="unitSeg"></div>
+    </div>
+    <div id="paneInvite">
+      <div class="label">초대 코드 <span id="invNow" style="font-weight:400"></span></div>
+      <div class="seg" id="rInvAct"><button data-a="keep">그대로</button><button data-a="set">바꾸기</button><button data-a="queue">대기열 추가</button><button data-a="clear">지우기</button></div>
+      <div class="invite-box" id="rInvSet" style="margin:8px 0 0">
+        <input class="field" id="rInvCode" maxlength="15" placeholder="영문/숫자 15자 · 선택한 인스턴스 모두에 저장" autocomplete="off" spellcheck="false">
+        <div class="seg" id="rInvMode"><button data-m="once">일회용</button><button data-m="permanent">영구</button></div>
+        <div class="loop lim" id="rInvLimRow"><div>횟수</div><div class="stepper"><button data-lim="-1" aria-label="줄이기">−</button><span id="rInvLimN"></span><button data-lim="1" aria-label="늘리기">+</button></div></div>
+      </div>
+    </div>
+    <div class="switch" id="bootSw"><div>꺼진 VM은 켜고 시작<small>부팅이 끝나면 자동으로 이어갑니다</small></div><div class="sw on"></div></div>
+  </div>
+  <div class="sheet-foot"><button class="btn primary block" id="runGo">시작</button></div>
+</section>
+
+<!-- Detail sheet -->
+<section class="sheet wide" id="detail">
+  <div class="sheet-head"><div><h2 id="dTitle"></h2><p id="dSub"></p></div><button class="x" data-close>✕</button></div>
+  <div class="sheet-body">
+    <div class="detail">
+      <div>
+        <div class="screen" id="screen"><img id="screenImg" alt=""><span class="stamp" id="stamp"></span></div>
+        <div class="tools">
+          <button class="btn primary" id="capture">캡쳐</button>
+          <button class="btn tonal" id="live">실시간</button>
+          <button class="btn tonal" id="tapMode">직접 조작</button>
+          <button class="btn tonal" data-key="back">뒤로</button>
+          <button class="btn tonal" data-key="home">홈</button>
+          <span class="spacer"></span>
+          <button class="btn tonal" id="download">저장</button>
+        </div>
+        <div class="log" id="log"></div>
+        <div class="hist"><h3>초대 기록</h3><div id="hist"></div></div>
+      </div>
+      <aside class="side">
+        <div class="switch" id="dLock" style="padding-top:0"><div>잠금<small>시작, VM 조작, 자동 초대 입력을 막아요</small></div><div class="sw"></div></div>
+        <h3>상태</h3>
+        <div class="group" id="kv" style="gap:0"></div>
+        <div class="loop lim" id="dLoopRow" style="padding:0 0 20px"><div>반복 회차</div><div class="stepper"><button data-dl="-1" aria-label="줄이기">−</button><span id="dLoopN"></span><button data-dl="1" aria-label="늘리기">+</button></div></div>
+        <h3>초대 코드</h3>
+        <div class="invite-box">
+          <div class="cur" id="invCur"></div>
+          <div id="invQueue"></div>
+          <input class="field" id="invCode" maxlength="15" placeholder="영문/숫자 15자" autocomplete="off" spellcheck="false">
+          <div class="seg" id="invMode"><button data-m="once">일회용</button><button data-m="permanent">영구</button></div>
+          <div class="loop lim" id="invLimRow"><div>횟수</div><div class="stepper"><button data-lim="-1" aria-label="줄이기">−</button><span id="invLimN"></span><button data-lim="1" aria-label="늘리기">+</button></div></div>
+          <div class="cur" id="invHint" style="margin:8px 2px 0"></div>
+          <div class="acts"><button class="btn primary" id="invSave">지금 쓰기</button><button class="btn tonal" id="invQueueAdd">대기열 추가</button><button class="btn tonal" id="invClear">지우기</button></div>
+        </div>
+        <h3>매크로</h3>
+        <div class="group">
+          <button class="btn primary" data-one="resume">이어하기</button>
+          <button class="btn tonal" data-one="stages">단계 실행</button>
+          <button class="btn tonal" data-one="run">처음부터</button>
+          <button class="btn danger" id="dStop">중지</button>
+          <button class="btn tonal" id="dKill" style="color:var(--red)">강제 종료</button>
+        </div>
+        <h3>VM</h3>
+        <div class="group">
+          <button class="btn tonal" data-vm="launch">켜기</button>
+          <button class="btn tonal" data-vm="launch-game">게임 실행</button>
+          <button class="btn tonal" data-vm="reboot">재부팅</button>
+          <button class="btn tonal" data-vm="quit">끄기</button>
+          <button class="btn tonal" data-vmx="clone">복제</button>
+          <button class="btn tonal" data-vmx="remove" style="color:var(--red)">VM 삭제</button>
+        </div>
+      </aside>
+    </div>
+  </div>
+</section>
+
+<!-- Remote sheet -->
+<section class="sheet" id="remoteSheet">
+  <div class="sheet-head"><div><h2>원격 접속</h2><p>같은 네트워크의 휴대폰이나 다른 PC에서 엽니다</p></div><button class="x" data-close>✕</button></div>
+  <div class="sheet-body">
+    <div class="switch" id="lanSw"><div>원격 접속 허용<small>포트 8787 · 같은 네트워크에서 누구나 열 수 있어요</small></div><div class="sw"></div></div>
+    <div id="lanUrls"></div>
+  </div>
+</section>
+
+<!-- VM sheet -->
+<section class="sheet" id="vmSheet">
+  <div class="sheet-head"><div><h2 id="vmTitle">VM 관리</h2><p id="vmSub">LD플레이어 VM을 만들고 복제하고 세팅해요</p></div><button class="x" data-close>✕</button></div>
+  <div class="sheet-body">
+    <div id="provBox"></div>
+    <div id="vmNewOnly">
+      <div class="label">LD플레이어</div>
+      <div class="kv"><span>폴더</span><span id="vmLdFolder"></span></div>
+      <div class="kv"><span>버전</span><span id="vmLdVersion"></span></div>
+      <div class="links" id="vmLinks"></div>
+      <div class="label">새 VM 세팅</div>
+      <input class="field" id="vName" placeholder="셐 매크로" spellcheck="false">
+    </div>
+    <div class="loop"><div><span id="vmCountLabel"></span><small id="vmCountHint"></small></div>
+      <div class="stepper"><button data-vc="-1" aria-label="줄이기">−</button><span id="vmCountN"></span><button data-vc="1" aria-label="늘리기">+</button></div></div>
+    <div class="kv"><span>디스크</span><span id="vmDisk"></span></div>
+    <div id="vmSetupOnly">
+      <div class="label">게임 설치</div>
+      <div class="seg" id="vInstall"><button data-i="apkpure">apkpure에서 받기</button><button data-i="none">설치 안 함</button></div>
+      <div class="cur" id="vInstallHint" style="font-size:12.5px;color:var(--text-3);margin:6px 2px 0"></div>
+      <div class="switch" id="vSetupSw"><div>튜토리얼·데이터 다운로드까지 세팅<small>초기 튜토리얼을 끝내고 게임 데이터를 받아둬요</small></div><div class="sw"></div></div>
+    </div>
+    <div class="switch" id="vStartSw"><div><span id="vStartLabel"></span><small>처음부터 실행으로 모든 단계를 진행해요</small></div><div class="sw"></div></div>
+    <div id="vUnitBox"><div class="label">유닛 <span id="vUnitHint" style="font-weight:400"></span></div><div class="seg" id="vUnitSeg"></div></div>
+    <div id="vStartOpts">
+      <div class="loop"><div>반복</div><div class="stepper"><button data-vl="-1" aria-label="줄이기">−</button><span id="vLoopN"></span><button data-vl="1" aria-label="늘리기">+</button></div></div>
+      <div class="label">초대 코드</div>
+      <div class="invite-box" style="margin:0">
+        <input class="field" id="vCode" maxlength="15" placeholder="영문/숫자 15자 · 비워두면 초대 없이 진행" autocomplete="off" spellcheck="false">
+        <div class="seg" id="vMode"><button data-m="once">일회용</button><button data-m="permanent">영구</button></div>
+        <div class="loop lim" id="vLimRow"><div>횟수</div><div class="stepper"><button data-vlim="-1" aria-label="줄이기">−</button><span id="vLimN"></span><button data-vlim="1" aria-label="늘리기">+</button></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="sheet-foot"><button class="btn primary block" id="vmGo"></button></div>
+</section>
+
+<!-- Language sheet -->
+<section class="sheet" id="langSheet">
+  <div class="sheet-head"><div><h2>언어</h2></div><button class="x" data-close>✕</button></div>
+  <div class="sheet-body"><div class="list" id="langList"></div></div>
+</section>
+
+<!-- Confirm sheet -->
+<section class="sheet" id="confirm">
+  <div class="sheet-head"><div><h2 id="cTitle"></h2><p id="cText"></p></div></div>
+  <div class="sheet-foot" style="display:flex;gap:8px;padding-top:16px">
+    <button class="btn tonal block" id="cNo">취소</button><button class="btn primary block" id="cYes">확인</button>
+  </div>
+</section>
+
+<div class="lightbox" id="lightbox"><img alt=""></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+/* Languages: Korean text is the key; static markup is translated in place and code uses t(). */
+const LANGS={ko:'한국어',ja:'日本語',en:'English'},LOCALE={ko:'ko-KR',ja:'ja-JP',en:'en-US'};
+const DICT={"ja":{"셐 매크로":"セカマクロ","모든 VM 화면 새로 캡쳐":"全VMの画面をキャプチャ","캡쳐":"キャプチャ","전체":"一括","창 정렬":"ウィンドウ整列","검증":"検証","원격 접속":"リモート接続","실행 중":"実行中","VM 켜짐":"VM起動中","완료":"完了","전체 선택":"すべて選択","선택 해제":"選択解除","이어하기":"再開","단계 실행":"段階実行","처음부터":"最初から","중지":"停止","실행":"実行","시작 지점":"開始地点","세부 지점 직접 선택":"詳細地点を選択","단계":"段階","반복":"繰り返し","줄이기":"減らす","늘리기":"増やす","게임 데이터를 지우고 새 계정으로 시작해요. 지금 계정이 필요하면 먼저 인계 코드를 발급하거나 계정 연동을 해두세요.":"ゲームデータを消して新しいアカウントで始めます。今のアカウントが必要なら、先に引き継ぎコードを発行するかアカウント連携をしておいてください。","유닛":"ユニット","초대 코드":"招待コード","그대로":"そのまま","바꾸기":"変更","대기열 추가":"待機列に追加","지우기":"消去","영문/숫자 15자 · 선택한 인스턴스 모두에 저장":"英数字15文字 · 選択したすべてのインスタンスに保存","영문/숫자 15자":"英数字15文字","일회용":"使い捨て","영구":"永久","횟수":"回数","꺼진 VM은 켜고 시작":"オフのVMは起動して開始","부팅이 끝나면 자동으로 이어갑니다":"起動が終わると自動で続けます","시작":"開始","실시간":"リアルタイム","직접 조작":"手動操作","뒤로":"戻る","홈":"ホーム","저장":"保存","초대 기록":"招待履歴","잠금":"ロック","시작, VM 조작, 자동 초대 입력을 막아요":"開始・VM操作・自動招待入力を止めます","상태":"状態","지금 쓰기":"今使う","매크로":"マクロ","강제 종료":"強制終了","켜기":"起動","게임 실행":"ゲーム起動","재부팅":"再起動","끄기":"シャットダウン","같은 네트워크의 휴대폰이나 다른 PC에서 엽니다":"同じネットワークのスマホや他のPCから開きます","원격 접속 허용":"リモート接続を許可","포트 8787 · 같은 네트워크에서 누구나 열 수 있어요":"ポート8787 · 同じネットワークなら誰でも開けます","취소":"キャンセル","확인":"OK","언어":"言語","선택":"選択","화면 없음":"画面なし","꺼짐":"オフ","초대 대기":"招待待ち","멈춤":"停止中","대기":"待機","방금":"たった今","{0}초 전":"{0}秒前","{0}분 전":"{0}分前","{0}시간 전":"{0}時間前","{0}일 전":"{0}日前","등록됨":"登録済み","거절됨":"拒否","확인 중":"確認中","{0}/{1}회차":"{0}/{1}周目","닉네임 미확인":"ニックネーム不明","초대 코드 있음":"招待コードあり","초대 코드 없음":"招待コードなし","{0}번":"{0}番","잠긴 인스턴스는 선택할 수 없어요":"ロック中のインスタンスは選択できません","잠금 해제":"ロック解除","잠그기":"ロックする","기록 없음":"記録なし","{0}개 선택":"{0}件選択","· 순서대로 진행":"· 順番に進行","· 초기화 없이 진행":"· 初期化せずに進行","{0}대 초기화 후 시작":"{0}台を初期化して開始","{0}대 시작":"{0}台を開始","{0}은 영구 초대 코드가 없어요":"{0}は永久招待コードがありません","회차마다 새 계정으로 초대 코드를 등록해요":"周回ごとに新しいアカウントで招待コードを登録します","{0}회":"{0}回","· 지금":"· 現在","없음":"なし","단계를 하나 이상 고르세요":"段階を1つ以上選んでください","초대 코드는 영문/숫자 15자예요":"招待コードは英数字15文字です","계정을 초기화할까요?":"アカウントを初期化しますか？","{0}은 새 계정으로 로그인돼요. 지금 계정이 필요하면 인계 코드를 발급하거나 연동을 먼저 해두세요.":"{0}は新しいアカウントでログインします。今のアカウントが必要なら、先に引き継ぎコードを発行するか連携をしておいてください。"," 끝나면 다시 초기화해서 총 {0}회 반복해요.":"終わったら再び初期化して合計{0}回繰り返します。","초기화 후 시작":"初期化して開始","{0}대 시작했어요":"{0}台を開始しました","매크로를 멈출까요?":"マクロを停止しますか？","{0} · 현재 단계가 끝나면 멈추고 게임은 그대로 둡니다.":"{0} · 現在の段階が終わったら止まり、ゲームはそのままです。","{0}대 중지 요청했어요":"{0}台に停止をリクエストしました","지점":"地点","진행":"進行","회차":"周回","업데이트":"更新","마지막 화면":"最後の画面","실시간 끄기":"リアルタイム停止","먼저 캡쳐하세요":"先にキャプチャしてください","로그 없음":"ログなし","영구 {0}회":"永久 {0}回","한 번 등록되면 다음 코드로 넘어가요":"1回登録されたら次のコードに進みます","{0}번 등록되면 다음 코드로 넘어가요":"{0}回登録されたら次のコードに進みます"," · 지금 쓰면 바로 입력해요":" · 今使うとすぐ入力します","지금":"現在","전체 {0}/{1}":"全体 {0}/{1}","저장된 코드 없음":"保存されたコードなし","대기열에서 빼기":"待機列から外す","{0}회차":"{0}周目","직접 입력":"直接入力","보상 화면 보기":"報酬画面を見る","아직 없음":"まだありません","강제 종료할까요?":"強制終了しますか？","진행 중인 동작이 즉시 끊깁니다. 보통은 중지를 쓰세요.":"進行中の動作がすぐ中断されます。普段は停止を使ってください。","VM을 끌까요?":"VMをシャットダウンしますか？","실행 중인 매크로가 있으면 함께 중지합니다.":"実行中のマクロがあれば一緒に停止します。","VM을 재부팅할까요?":"VMを再起動しますか？","켜진 VM이 없어요":"起動中のVMがありません","캡쳐하는 중…":"キャプチャ中…","{0}대 캡쳐 완료":"{0}台のキャプチャ完了","복사":"コピー","복사했어요":"コピーしました","원격 접속을 켰어요":"リモート接続をオンにしました","원격 접속을 껐어요":"リモート接続をオフにしました","단계 시작":"段階の開始","세부 지점":"詳細地点","반복 회차":"周回数","LD플레이어를 찾지 못했어요. ldconsole.exe가 있는 폴더를 알려주세요.":"LDPlayerが見つかりません。ldconsole.exeがあるフォルダを入力してください。","예: D:\\LDPlayer\\LDPlayer9":"例: D:\\LDPlayer\\LDPlayer9","VM 관리":"VM管理","LD플레이어 VM을 만들고 복제하고 세팅해요":"LDPlayerのVMを作成・複製・準備します","LD플레이어":"LDPlayer","폴더":"フォルダ","버전":"バージョン","새 VM 세팅":"新しいVMの準備","게임 설치":"ゲームのインストール","apkpure에서 받기":"apkpureから取得","다른 VM에서 복사":"他のVMからコピー","설치 안 함":"インストールしない","튜토리얼·데이터 다운로드까지 세팅":"チュートリアルとデータダウンロードまで準備","초기 튜토리얼을 끝내고 게임 데이터를 받아둬요":"最初のチュートリアルを終えてゲームデータを取得します","처음부터 실행으로 모든 단계를 진행해요":"最初から実行ですべての段階を進めます","영문/숫자 15자 · 비워두면 초대 없이 진행":"英数字15文字 · 空欄なら招待なしで進行","복제":"複製","VM 삭제":"VM削除","VM 세팅 중":"VM準備中","찾지 못함":"見つかりません","지금 버전 받기 ({0})":"現在のバージョンを取得 ({0})","검증된 버전 받기 ({0})":"検証済みバージョンを取得 ({0})","LD플레이어 9 최신 버전":"LDPlayer 9 最新版","공식 사이트":"公式サイト","진행 중":"進行中","실패":"失敗","취소됨":"キャンセル","멈추기":"止める","{0} 복제":"{0}を複製","복제할 개수":"複製する数","만들 VM 수":"作るVMの数","{0}대":"{0}台","1대를 세팅한 뒤 {0}대를 복제해요":"1台を準備してから{0}台を複製します","1대만 만들어요":"1台だけ作ります","복제한 VM에서 바로 매크로 시작":"複製したVMですぐマクロを開始","세팅 후 바로 매크로 시작":"準備後すぐマクロを開始","{0}대 복제":"{0}台を複製","세팅 시작":"準備開始","VM {0}대를 세팅할까요?":"VMを{0}台準備しますか？","게임 설치와 튜토리얼에 시간이 걸려요. 진행 상황은 이 창과 카드에서 볼 수 있어요.":"ゲームのインストールとチュートリアルには時間がかかります。進行状況はこの画面とカードで確認できます。","{0} VM을 지울까요?":"{0}のVMを削除しますか？","LD플레이어에서 VM이 완전히 삭제돼요. 매크로 기록은 local/removed에 남아요.":"LDPlayerからVMが完全に削除されます。マクロの記録はlocal/removedに残ります。","삭제":"削除","반복하려면 영구 초대 코드를 넣으세요":"繰り返すには永久招待コードを入れてください","디스크":"ディスク","{0} 남음 · 필요 약 {1}":"{0} 空き · 必要 約{1}","게임 받기 (apkpure)":"ゲームを取得 (apkpure)","자동":"自動","게임이 있는 VM → 보관된 파일 → apkpure 순서로 설치해요":"ゲームが入ったVM → 保存済みファイル → apkpureの順にインストールします","셐 매크로 창의 브라우저로 apkpure에서 받아 설치해요":"セカマクロのウィンドウのブラウザでapkpureから取得してインストールします","게임 없이 VM만 만들어요":"ゲームなしでVMだけ作ります","게임 페이지 (apkpure)":"ゲームページ (apkpure)","게임 파일 받기":"ゲームファイルを取得","apkpure 최신 버전을 셐 매크로 창에서 받아 설치하고 QooApp도 깔아요":"apkpureの最新版をアプリのウィンドウで取得してインストールし、QooAppも入れます","게임 업데이트":"ゲーム更新","게임을 업데이트할까요?":"ゲームを更新しますか？","apkpure 최신 버전으로 올려요. 매크로가 돌고 있는 VM은 건너뛰고, 계정과 데이터는 그대로예요.":"apkpureの最新版に更新します。マクロ実行中のVMはスキップし、アカウントとデータはそのままです。","＋ VM 만들기":"＋ VMを作成","복제는 인스턴스를 하나만 골라주세요":"複製はインスタンスを1つだけ選んでください","· {0} 이벤트 유닛":"· {0} のイベントユニット","이벤트 유닛과 달라요":"イベントのユニットと違います","지금 이벤트({0})의 유닛은 {1}이에요. 고른 유닛은 {2}예요. 그대로 진행할까요?":"現在のイベント（{0}）のユニットは{1}です。選んだユニットは{2}です。このまま進めますか？","그대로 진행":"このまま進める"},"en":{"셐 매크로":"Sekai Macro","모든 VM 화면 새로 캡쳐":"Capture every VM screen","캡쳐":"Capture","전체":"all","창 정렬":"Arrange","검증":"Validate","원격 접속":"Remote access","실행 중":"Running","VM 켜짐":"VMs on","완료":"Done","전체 선택":"Select all","선택 해제":"Deselect","이어하기":"Resume","단계 실행":"Run stages","처음부터":"From scratch","중지":"Stop","실행":"Run","시작 지점":"Start point","세부 지점 직접 선택":"Pick a specific step","단계":"Stages","반복":"Loops","줄이기":"Decrease","늘리기":"Increase","게임 데이터를 지우고 새 계정으로 시작해요. 지금 계정이 필요하면 먼저 인계 코드를 발급하거나 계정 연동을 해두세요.":"This erases the game data and starts a new account. If you need the current account, issue a transfer code or link the account first.","유닛":"Unit","초대 코드":"Invitation code","그대로":"Keep","바꾸기":"Replace","대기열 추가":"Add to queue","지우기":"Clear","영문/숫자 15자 · 선택한 인스턴스 모두에 저장":"15 letters or digits · saved to every selected instance","영문/숫자 15자":"15 letters or digits","일회용":"Single-use","영구":"Permanent","횟수":"Uses","꺼진 VM은 켜고 시작":"Boot VMs that are off","부팅이 끝나면 자동으로 이어갑니다":"Continues automatically after boot","시작":"Start","실시간":"Live","직접 조작":"Manual control","뒤로":"Back","홈":"Home","저장":"Save","초대 기록":"Invitation history","잠금":"Locked","시작, VM 조작, 자동 초대 입력을 막아요":"Blocks starting, VM actions and automatic invitation entry","상태":"Status","지금 쓰기":"Use now","매크로":"Macro","강제 종료":"Force stop","켜기":"Turn on","게임 실행":"Launch game","재부팅":"Reboot","끄기":"Turn off","같은 네트워크의 휴대폰이나 다른 PC에서 엽니다":"Open it from a phone or another PC on the same network","원격 접속 허용":"Allow remote access","포트 8787 · 같은 네트워크에서 누구나 열 수 있어요":"Port 8787 · anyone on the same network can open it","취소":"Cancel","확인":"OK","언어":"Language","선택":"Select","화면 없음":"No screen","꺼짐":"Off","초대 대기":"Awaiting invite","멈춤":"Halted","대기":"Idle","방금":"just now","{0}초 전":"{0}s ago","{0}분 전":"{0}m ago","{0}시간 전":"{0}h ago","{0}일 전":"{0}d ago","등록됨":"Registered","거절됨":"Rejected","확인 중":"Checking","{0}/{1}회차":"Loop {0}/{1}","닉네임 미확인":"Unknown nickname","초대 코드 있음":"Has invitation code","초대 코드 없음":"No invitation code","{0}번":"#{0}","잠긴 인스턴스는 선택할 수 없어요":"Locked instances cannot be selected","잠금 해제":"Unlock","잠그기":"Lock","기록 없음":"No record","{0}개 선택":"{0} selected","· 순서대로 진행":"· runs in order","· 초기화 없이 진행":"· runs without a reset","{0}대 초기화 후 시작":"Reset and start {0}","{0}대 시작":"Start {0}","{0}은 영구 초대 코드가 없어요":"{0}: no permanent invitation code","회차마다 새 계정으로 초대 코드를 등록해요":"Each loop registers the invitation code on a new account","{0}회":"{0}×","· 지금":"· now","없음":"none","단계를 하나 이상 고르세요":"Pick at least one stage","초대 코드는 영문/숫자 15자예요":"Invitation codes are 15 letters or digits","계정을 초기화할까요?":"Reset the accounts?","{0}은 새 계정으로 로그인돼요. 지금 계정이 필요하면 인계 코드를 발급하거나 연동을 먼저 해두세요.":"{0} will sign in with a new account. If you need the current account, issue a transfer code or link it first."," 끝나면 다시 초기화해서 총 {0}회 반복해요.":" When done it resets again, {0} loops in total.","초기화 후 시작":"Reset and start","{0}대 시작했어요":"Started {0}","매크로를 멈출까요?":"Stop the macros?","{0} · 현재 단계가 끝나면 멈추고 게임은 그대로 둡니다.":"{0} · stops after the current stage and leaves the game as is.","{0}대 중지 요청했어요":"Requested a stop for {0}","지점":"Step","진행":"Progress","회차":"Loop","업데이트":"Update","마지막 화면":"Last screen","실시간 끄기":"Stop live","먼저 캡쳐하세요":"Capture first","로그 없음":"No log","영구 {0}회":"Permanent ×{0}","한 번 등록되면 다음 코드로 넘어가요":"Moves to the next code after one registration","{0}번 등록되면 다음 코드로 넘어가요":"Moves to the next code after {0} registrations"," · 지금 쓰면 바로 입력해요":" · using it now enters it right away","지금":"Now","전체 {0}/{1}":"total {0}/{1}","저장된 코드 없음":"No saved code","대기열에서 빼기":"Remove from queue","{0}회차":"loop {0}","직접 입력":"Manual","보상 화면 보기":"View reward screen","아직 없음":"Nothing yet","강제 종료할까요?":"Force stop?","진행 중인 동작이 즉시 끊깁니다. 보통은 중지를 쓰세요.":"The current action is cut off immediately. Use Stop normally.","VM을 끌까요?":"Turn off the VM?","실행 중인 매크로가 있으면 함께 중지합니다.":"Any running macro stops too.","VM을 재부팅할까요?":"Reboot the VM?","켜진 VM이 없어요":"No VMs are on","캡쳐하는 중…":"Capturing…","{0}대 캡쳐 완료":"Captured {0}","복사":"Copy","복사했어요":"Copied","원격 접속을 켰어요":"Remote access is on","원격 접속을 껐어요":"Remote access is off","단계 시작":"Stage start","세부 지점":"Specific step","반복 회차":"Loops","LD플레이어를 찾지 못했어요. ldconsole.exe가 있는 폴더를 알려주세요.":"LDPlayer was not found. Enter the folder that has ldconsole.exe.","예: D:\\LDPlayer\\LDPlayer9":"e.g. D:\\LDPlayer\\LDPlayer9","VM 관리":"VMs","LD플레이어 VM을 만들고 복제하고 세팅해요":"Create, copy and set up LDPlayer VMs","LD플레이어":"LDPlayer","폴더":"Folder","버전":"Version","새 VM 세팅":"New VM setup","게임 설치":"Game install","apkpure에서 받기":"From apkpure","다른 VM에서 복사":"Copy from a VM","설치 안 함":"Skip","튜토리얼·데이터 다운로드까지 세팅":"Run the tutorial and data download","초기 튜토리얼을 끝내고 게임 데이터를 받아둬요":"Finishes the first tutorial and downloads the game data","처음부터 실행으로 모든 단계를 진행해요":"Runs every stage from scratch","영문/숫자 15자 · 비워두면 초대 없이 진행":"15 letters or digits · leave empty to skip invitations","복제":"Copy","VM 삭제":"Remove VM","VM 세팅 중":"Setting up VMs","찾지 못함":"Not found","지금 버전 받기 ({0})":"Get this version ({0})","검증된 버전 받기 ({0})":"Get the tested version ({0})","LD플레이어 9 최신 버전":"Latest LDPlayer 9","공식 사이트":"Official site","진행 중":"Running","실패":"Failed","취소됨":"Cancelled","멈추기":"Stop","{0} 복제":"Copy {0}","복제할 개수":"Copies","만들 VM 수":"VMs to make","{0}대":"{0}","1대를 세팅한 뒤 {0}대를 복제해요":"Sets up one VM, then makes {0} copies","1대만 만들어요":"Makes one VM","복제한 VM에서 바로 매크로 시작":"Start macros on the copies","세팅 후 바로 매크로 시작":"Start macros after setup","{0}대 복제":"Make {0} copies","세팅 시작":"Start setup","VM {0}대를 세팅할까요?":"Set up {0} VMs?","게임 설치와 튜토리얼에 시간이 걸려요. 진행 상황은 이 창과 카드에서 볼 수 있어요.":"Installing the game and the tutorial take a while. Follow progress here and on the cards.","{0} VM을 지울까요?":"Remove the {0} VM?","LD플레이어에서 VM이 완전히 삭제돼요. 매크로 기록은 local/removed에 남아요.":"The VM is deleted from LDPlayer. Macro records stay in local/removed.","삭제":"Remove","반복하려면 영구 초대 코드를 넣으세요":"Loops need a permanent invitation code","디스크":"Disk","{0} 남음 · 필요 약 {1}":"{0} free · needs about {1}","게임 받기 (apkpure)":"Get the game (apkpure)","자동":"Auto","게임이 있는 VM → 보관된 파일 → apkpure 순서로 설치해요":"Installs from a VM with the game, then kept files, then apkpure","셐 매크로 창의 브라우저로 apkpure에서 받아 설치해요":"Downloads from apkpure in the app window's browser and installs","게임 없이 VM만 만들어요":"Creates the VM without the game","게임 페이지 (apkpure)":"Game page (apkpure)","게임 파일 받기":"Download the game file","apkpure 최신 버전을 셐 매크로 창에서 받아 설치하고 QooApp도 깔아요":"Gets the latest version from apkpure in the app window, installs it and adds QooApp","게임 업데이트":"Update the game","게임을 업데이트할까요?":"Update the game?","apkpure 최신 버전으로 올려요. 매크로가 돌고 있는 VM은 건너뛰고, 계정과 데이터는 그대로예요.":"Updates to the latest apkpure version. VMs running a macro are skipped; accounts and data stay.","＋ VM 만들기":"＋ New VM","복제는 인스턴스를 하나만 골라주세요":"Select one instance to copy","· {0} 이벤트 유닛":"· unit of {0}","이벤트 유닛과 달라요":"Not the event unit","지금 이벤트({0})의 유닛은 {1}이에요. 고른 유닛은 {2}예요. 그대로 진행할까요?":"The current event ({0}) is for {1}, but {2} is selected. Continue anyway?","그대로 진행":"Continue anyway"}};
+let lang='ko';try{lang=localStorage.getItem('lang')||'ko'}catch(e){}
+function t(k,...a){return (DICT[lang]?.[k]??k).replace(/\{(\d)\}/g,(_,i)=>a[i])}
+const nth=n=>t('{0}번',n),nths=ns=>ns.map(nth).join(', ');
+const original=new WeakMap();
+function translatePage(){
+  document.documentElement.lang=lang;document.title=t('셐 매크로');
+  const walk=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT,{acceptNode:n=>n.parentElement.closest('script,style')?NodeFilter.FILTER_REJECT:NodeFilter.FILTER_ACCEPT});
+  for(let n;n=walk.nextNode();){if(!original.has(n))original.set(n,n.nodeValue);const o=original.get(n),k=o.trim();if(k)n.nodeValue=o.replace(k,t(k))}
+  for(const el of document.querySelectorAll('[placeholder],[title],[aria-label]'))for(const a of ['placeholder','title','aria-label']){
+    if(!el.hasAttribute(a))continue;const key='data-ko-'+a;if(!el.hasAttribute(key))el.setAttribute(key,el.getAttribute(a));el.setAttribute(a,t(el.getAttribute(key)))}
+  $('#langBtn').title=LANGS[lang];
+}
+translatePage();
+const state={meta:null,list:[],sel:new Set(),detail:null,live:false,tap:false,local:false,mode:'resume',point:'saved',stages:[],unit:'mmj',boot:true,targets:[],loops:1,inv:{act:'keep',mode:'once',limit:10}};
+const LOCK='<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="7" width="10" height="7" rx="2" fill="currentColor" stroke="none"/><path d="M5.2 7V5a2.8 2.8 0 0 1 5.6 0v2"/></svg>';
+const UNLOCK='<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="7" width="10" height="7" rx="2" fill="currentColor" stroke="none"/><path d="M5.2 7V5a2.8 2.8 0 0 1 5.4-1"/></svg>';
+const CHECK='<svg width="14" height="14" viewBox="0 0 14 14"><path d="M3 7.2l2.6 2.6L11 4.4" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+async function api(path,body){
+  const r=await fetch('/api'+path,body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const type=r.headers.get('content-type')||'';
+  const data=type.includes('json')?await r.json():await r.text();
+  if(!r.ok) throw new Error(data.message||data||r.statusText);
+  return data;
+}
+let toastTimer;
+function toast(msg,err){const t=$('#toast');t.textContent=msg;t.className='toast show'+(err?' err':'');clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.className='toast'+(err?' err':''),2800)}
+async function act(fn){try{const r=await fn();if(r&&r.message)toast(r.message);refresh();return r}catch(e){toast(e.message,true)}}
+
+function status(i){
+  if(i.pending) return ['wait',i.pending];
+  if(i.workerRunning) return ['run',t('실행 중')];
+  if(i.locked) return ['',t('잠금')];
+  if(!i.vmRunning) return ['',t('꺼짐')];
+  if(i.step==='event-stories-complete'&&i.stepStatus==='awaiting-invitation') return ['wait',t('초대 대기')];
+  if(i.hasError) return ['err',t('멈춤')];
+  if(i.stageStatus==='complete'&&i.stepIndex===i.stepCount-1) return ['done',t('완료')];
+  return ['',t('대기')];
+}
+function ago(at){if(!at)return'';const s=(Date.now()-new Date(at))/1000;if(s<10)return t('방금');if(s<60)return t('{0}초 전',Math.floor(s));if(s<3600)return t('{0}분 전',Math.floor(s/60));if(s<86400)return t('{0}시간 전',Math.floor(s/3600));return t('{0}일 전',Math.floor(s/86400))}
+const MODE={get once(){return t('일회용')},get permanent(){return t('영구')}};
+const RESULT={get registered(){return ['ok',t('등록됨')]},get rejected(){return ['bad',t('거절됨')]},get confirming(){return ['wait',t('확인 중')]}};
+function invLine(i){
+  const parts=[],l=i.loopInvite;
+  if(i.loop&&i.loop.total>1) parts.push(`<span>${t('{0}/{1}회차',i.loop.index,i.loop.total)}</span>`);
+  if(l){const [c,r]=RESULT[l.result]||['',l.result];parts.push(`<span><b>${esc(l.nickname||t('닉네임 미확인'))}</b> <span class="${c}">${r}</span></span>`)}
+  else parts.push(`<span>${t(i.invite?'초대 코드 있음':'초대 코드 없음')}</span>`);
+  return (i.invite?`<span class="tag ${i.invite.mode==='permanent'?'perm':''}">${MODE[i.invite.mode]}${i.invite.mode==='permanent'?` ${i.inviteUses}/${i.inviteLimit}`:''}${i.queueCount?` +${i.queueCount}`:''}</span>`:'')+parts.join('<span>·</span>');
+}
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+const frameAt={};
+function render(){
+  const grid=$('#grid');
+  for(const i of state.list){
+    let card=grid.querySelector(`[data-i="${i.instance}"]`);
+    if(!card){
+      card=document.createElement('article');card.className='card';card.dataset.i=i.instance;
+      card.innerHTML=`<div class="thumb"><img alt=""><div class="empty">${t('화면 없음')}</div><button class="check" aria-label="${t('선택')}">${CHECK}</button><button class="lockbtn" aria-label="${t('잠금')}"></button></div>
+        <div class="body"><div class="row"><div style="min-width:0"><div class="name">${nth(i.instance)}</div><div class="sub">${esc(i.name)}</div></div><span class="chip"><i></i><em></em><img class="unit-ic" alt="" hidden></span></div>
+        <div class="stage"></div><div class="step"><code></code><span></span></div><div class="bar"><div></div></div><div class="inv"></div></div>`;
+      card.querySelector('.check').onclick=e=>{e.stopPropagation();toggle(i.instance)};
+      card.querySelector('.lockbtn').onclick=e=>{e.stopPropagation();setLock(i.instance,!cur(i.instance).locked)};
+      // The screenshot selects the instance; the rest of the card opens its details.
+      card.querySelector('.thumb').onclick=e=>{e.stopPropagation();if(cur(i.instance)?.locked)return toast(t('잠긴 인스턴스는 선택할 수 없어요'));toggle(i.instance)};
+      card.onclick=()=>openDetail(i.instance);
+      grid.appendChild(card);
+    }
+    const [cls,label]=status(i);
+    if(i.locked)state.sel.delete(i.instance);
+    card.classList.toggle('sel',state.sel.has(i.instance));
+    if(card.classList.contains('locked')!==i.locked||!card.dataset.lk){card.dataset.lk=1;card.classList.toggle('locked',i.locked);const lb=card.querySelector('.lockbtn');lb.innerHTML=i.locked?LOCK:UNLOCK;lb.title=t(i.locked?'잠금 해제':'잠그기')}
+    card.querySelector('.thumb').classList.toggle('off',!i.vmRunning);
+    const chip=card.querySelector('.chip');chip.className='chip '+cls;chip.querySelector('em').textContent=label;chip.querySelector('em').style.fontStyle='normal';
+    const ic=chip.querySelector('img');ic.hidden=!i.runUnit;if(i.runUnit&&ic.dataset.u!==i.runUnit){ic.dataset.u=i.runUnit;ic.src=unitIcon(i.runUnit);ic.title=ic.alt=unitLabel(i.runUnit)}
+    card.querySelector('.stage').textContent=i.stageTitle||i.stage||t('기록 없음');
+    card.querySelector('.step code').textContent=i.step||'';
+    card.querySelector('.step span').textContent=ago(i.updated);
+    card.querySelector('.bar div').style.width=(i.stepIndex>=0?Math.round((i.stepIndex+1)/i.stepCount*100):0)+'%';
+    card.querySelector('.inv').innerHTML=invLine(i);
+    const img=card.querySelector('.thumb img'),empty=card.querySelector('.empty');
+    empty.style.display=i.hasFrame?'none':'';
+    const due=!frameAt[i.instance]||(i.workerRunning&&Date.now()-frameAt[i.instance]>3000);
+    if(i.hasFrame&&due&&!img.dataset.fresh){frameAt[i.instance]=Date.now();img.src=`/api/instances/${i.instance}/frame?t=${Date.now()}`}
+  }
+  grid.classList.toggle('two',state.list.length>3);
+  $('#sRun').textContent=state.list.filter(i=>i.workerRunning).length;
+  $('#sVm').textContent=state.list.filter(i=>i.vmRunning).length;
+  $('#sDone').textContent=state.list.filter(i=>status(i)[0]==='done').length;
+  const free=state.list.filter(i=>!i.locked);
+  $('#selectAll').disabled=!free.length||free.every(i=>state.sel.has(i.instance));$('#selectNone').disabled=!state.sel.size;
+  $('#dock').classList.toggle('show',state.sel.size>0);
+  $('#selCount').textContent=t('{0}개 선택',state.sel.size);
+  // Copy and remove sit next to "New VM" while instances are selected.
+  const picked=[...state.sel].map(n=>cur(n)).filter(Boolean),one=picked.length===1?picked[0]:null;
+  $('#cloneSel').style.display=$('#removeSel').style.display=picked.length?'':'none';
+  $('#cloneSel').disabled=!one||one.workerRunning||!!one.pending;
+  $('#cloneSel').title=picked.length>1?t('복제는 인스턴스를 하나만 골라주세요'):'';
+  $('#removeSel').disabled=picked.some(i=>i.workerRunning||i.pending);
+  if(state.detail!=null) renderDetail();
+}
+function toggle(n){if(cur(n)?.locked)return;state.sel.has(n)?state.sel.delete(n):state.sel.add(n);render()}
+$('#selectAll').onclick=()=>{state.list.filter(i=>!i.locked).forEach(i=>state.sel.add(i.instance));render()};
+$('#selectNone').onclick=()=>{state.sel.clear();render()};
+async function setLock(n,locked){await act(()=>api(`/instances/${n}/lock`,{locked}));await refresh()}
+$('#dLock').onclick=()=>setLock(state.detail,!cur().locked);
+
+async function refresh(){try{state.list=await api('/instances');render()}catch(e){}}
+
+/* Sheets */
+let open=[];
+// Each newly opened sheet stacks above the open ones; the scrim sits just under the top sheet so the ones below dim.
+function restack(){const top=open[open.length-1];if(top)$('#scrim').style.zIndex=+top.style.zIndex-1}
+function show(id){const el=$(id);open=open.filter(x=>x!==el);open.push(el);el.style.zIndex=31+open.length*2;restack();el.classList.add('show');$('#scrim').classList.add('show')}
+function hide(el){el=el||open.pop();if(!el)return;open=open.filter(x=>x!==el);el.classList.remove('show');if(!open.length)$('#scrim').classList.remove('show');else restack();if(el.id==='detail')closeDetail()}
+$('#scrim').onclick=()=>hide();
+$$('[data-close]').forEach(b=>b.onclick=()=>hide(b.closest('.sheet')));
+document.addEventListener('keydown',e=>{if(e.key!=='Escape')return;if($('#lightbox').classList.contains('show'))return $('#lightbox').classList.remove('show');hide()});
+function confirmBox(title,text,yes=t('확인'),danger){return new Promise(res=>{$('#cTitle').textContent=title;$('#cText').textContent=text;const y=$('#cYes');y.textContent=yes;y.className='btn block '+(danger?'danger':'primary');
+  show('#confirm');y.onclick=()=>{hide($('#confirm'));res(true)};$('#cNo').onclick=()=>{hide($('#confirm'));res(false)}})}
+
+/* Units: logo buttons; a "<unit> Memories" event picks its unit and warns before running another */
+const unitIcon=k=>`/units/${k}.webp`;
+const unitLabel=k=>state.meta?.units.find(u=>u.key===k)?.label||k;
+async function loadEvent(){try{state.event=await api('/event')}catch(e){}}
+function fillUnits(seg,pick){seg.classList.add('units');seg.innerHTML='';state.meta.units.forEach(u=>{const b=document.createElement('button');b.dataset.u=u.key;b.title=u.label;b.setAttribute('aria-label',u.label);
+  b.innerHTML=`<img src="${unitIcon(u.key)}" alt="">`;b.onclick=()=>pick(u.key);seg.appendChild(b)})}
+function markUnits(seg,hint,unit){const ev=state.event?.unit;
+  seg.querySelectorAll('button').forEach(b=>{b.classList.toggle('on',b.dataset.u===unit);b.classList.toggle('ev',b.dataset.u===ev)});
+  $(hint).textContent=ev?t('· {0} 이벤트 유닛',state.event.name):''}
+async function unitOk(unit){const ev=state.event;if(!ev?.unit||unit===ev.unit)return true;
+  return confirmBox(t('이벤트 유닛과 달라요'),t('지금 이벤트({0})의 유닛은 {1}이에요. 고른 유닛은 {2}예요. 그대로 진행할까요?',ev.name,unitLabel(ev.unit),unitLabel(unit)),t('그대로 진행'),true)}
+
+/* Run sheet */
+function setMode(m){state.mode=m;$$('#modeSeg button').forEach(b=>b.classList.toggle('on',b.dataset.mode===m));
+  $('#paneResume').style.display=m==='resume'?'':'none';$('#paneStages').style.display=m==='resume'?'none':'';
+  $('#paneUnit').style.display=m==='resume'?'none':'';$('#resetNote').style.display=m==='run'?'':'none';
+  $('#stageHint').textContent=t(m==='run'?'· 순서대로 진행':'· 초기화 없이 진행');
+  $('#paneLoop').style.display=m==='run'?'':'none';
+  if(m==='run'&&!state.stages.includes('onboarding'))state.stages=[...state.meta.plan];
+  renderStages();
+  const go=$('#runGo');go.className='btn block '+(m==='run'?'danger':'primary');go.textContent=t(m==='run'?'{0}대 초기화 후 시작':'{0}대 시작',state.targets.length);
+  if(m==='run')renderLoop();}
+function renderLoop(){
+  const eff=n=>({set:state.inv.mode,clear:null,queue:cur(n)?.invite?.mode??state.inv.mode}[state.inv.act]??cur(n)?.invite?.mode);
+  const missing=state.targets.filter(n=>eff(n)!=='permanent');
+  if(missing.length)state.loops=1;
+  $('#loopHint').textContent=missing.length?t('{0}은 영구 초대 코드가 없어요',nths(missing)):t('회차마다 새 계정으로 초대 코드를 등록해요');
+  $('#loopN').textContent=t('{0}회',state.loops);
+  $('#loopDown').disabled=state.loops<=1;$('#loopUp').disabled=!!missing.length||state.loops>=99;
+  const go=$('#runGo');if(state.mode==='run')go.textContent=t('{0}대 초기화 후 시작',state.targets.length)+(state.loops>1?' · '+t('{0}회',state.loops):'');
+}
+function renderInv(){
+  $$('#rInvAct button').forEach(b=>b.classList.toggle('on',b.dataset.a===state.inv.act));
+  $$('#rInvMode button').forEach(b=>b.classList.toggle('on',b.dataset.m===state.inv.mode));
+  $('#rInvSet').style.display=state.inv.act==='set'||state.inv.act==='queue'?'':'none';
+  $('#rInvLimRow').style.display=state.inv.mode==='permanent'?'':'none';$('#rInvLimN').textContent=t('{0}회',state.inv.limit);
+  $$('#rInvLimRow [data-lim]').forEach(b=>b.disabled=b.dataset.lim<0?state.inv.limit<=1:state.inv.limit>=10);
+  $('#invNow').textContent=t('· 지금')+' '+state.targets.map(n=>{const i=cur(n),v=i?.invite;return `${nth(n)} ${v?MODE[v.mode]:t('없음')}${i?.queueCount?` +${i.queueCount}`:''}`}).join(', ');
+  if(state.mode==='run')renderLoop();
+}
+$$('#rInvAct button').forEach(b=>b.onclick=()=>{state.inv.act=b.dataset.a;renderInv();if(state.inv.act==='set')$('#rInvCode').focus()});
+$$('#rInvMode button').forEach(b=>b.onclick=()=>{state.inv.mode=b.dataset.m;renderInv()});
+$$('#rInvLimRow [data-lim]').forEach(b=>b.onclick=()=>{state.inv.limit=Math.min(10,Math.max(1,state.inv.limit+ +b.dataset.lim));renderInv()});
+$('#loopDown').onclick=()=>{state.loops=Math.max(1,state.loops-1);renderLoop()};
+$('#loopUp').onclick=()=>{state.loops=Math.min(99,state.loops+1);renderLoop()};
+function renderStages(){
+  const chips=$('#stageChips');chips.innerHTML='';
+  const order=state.meta.stages.map(s=>s.name);
+  state.meta.stages.forEach(s=>{const b=document.createElement('button');const idx=state.stages.indexOf(s.name);b.className='tog'+(idx>=0?' on':'');
+    b.innerHTML=(idx>=0?`<span class="n">${idx+1}</span>`:'')+esc(s.title);
+    b.onclick=()=>{const k=state.stages.indexOf(s.name);if(k>=0)state.stages.splice(k,1);else{state.stages.push(s.name);state.stages.sort((a,b)=>order.indexOf(a)-order.indexOf(b))}renderStages()};chips.appendChild(b)});
+}
+function renderPoints(){
+  const box=$('#points');box.innerHTML='';
+  state.meta.resumePoints.forEach(p=>{const b=document.createElement('button');b.className='opt'+(state.point===p.key?' on':'');b.innerHTML=`<span class="radio"></span><span>${esc(p.label)}</span>`;
+    b.onclick=()=>{state.point=p.key;$('#pointDetail').value='';renderPoints()};box.appendChild(b)});
+}
+function openRun(mode,targets){
+  state.targets=targets;state.loops=1;state.inv={act:'keep',mode:'once',limit:10};$('#rInvCode').value='';renderInv();
+  if(state.event?.unit)state.unit=state.event.unit;markUnits($('#unitSeg'),'#unitHint',state.unit);
+  $('#runTargets').textContent=nths(targets);
+  $('#runTitle').textContent=t('실행');
+  setMode(mode);renderPoints();
+  show('#runSheet');
+}
+$$('#modeSeg button').forEach(b=>b.onclick=()=>setMode(b.dataset.mode));
+$('#pointDetail').onchange=e=>{if(e.target.value){state.point=e.target.value;renderPoints()}};
+$('#bootSw').onclick=()=>{state.boot=!state.boot;$('#bootSw .sw').classList.toggle('on',state.boot)};
+$$('[data-run]').forEach(b=>b.onclick=()=>openRun(b.dataset.run,[...state.sel].sort((a,b)=>a-b)));
+$('#runGo').onclick=async()=>{
+  if(state.mode!=='resume'&&!state.stages.length)return toast(t('단계를 하나 이상 고르세요'),true);
+  const invCode=$('#rInvCode').value.trim();
+  if((state.inv.act==='set'||state.inv.act==='queue')&&!/^[A-Za-z0-9]{15}$/.test(invCode))return toast(t('초대 코드는 영문/숫자 15자예요'),true);
+  if(state.mode!=='resume'&&!await unitOk(state.unit))return;
+  if(state.mode==='run'&&!await confirmBox(t('계정을 초기화할까요?'),t('{0}은 새 계정으로 로그인돼요. 지금 계정이 필요하면 인계 코드를 발급하거나 연동을 먼저 해두세요.',nths(state.targets))+(state.loops>1?t(' 끝나면 다시 초기화해서 총 {0}회 반복해요.',state.loops):''),t('초기화 후 시작'),true))return;
+  const body={mode:state.mode,from:state.point,stages:state.stages,unit:state.unit,bootVm:state.boot,loops:state.mode==='run'?state.loops:1,
+    invite:state.inv.act,inviteCode:state.inv.act==='set'||state.inv.act==='queue'?invCode:null,inviteMode:state.inv.mode,
+    inviteLimit:state.inv.mode==='permanent'?state.inv.limit:null};
+  hide($('#runSheet'));
+  const msgs=[];
+  for(const n of state.targets){try{msgs.push((await api(`/instances/${n}/start`,body)).message)}catch(e){toast(e.message,true);return refresh()}}
+  toast(state.targets.length>1?t('{0}대 시작했어요',state.targets.length):msgs[0]);refresh();
+};
+$('#stopSel').onclick=async()=>{const targets=[...state.sel];if(!await confirmBox(t('매크로를 멈출까요?'),t('{0} · 현재 단계가 끝나면 멈추고 게임은 그대로 둡니다.',nths(targets)),t('중지'),true))return;
+  for(const n of targets)await act(()=>api(`/instances/${n}/stop`,{}));toast(t('{0}대 중지 요청했어요',targets.length))};
+
+/* Detail */
+let liveTimer,logTimer,shotUrl;
+function cur(n=state.detail){return state.list.find(i=>i.instance===n)}
+function openDetail(n){state.detail=n;state.tap=false;state.live=false;$('#screenImg').removeAttribute('src');$('#stamp').textContent='';
+  $('#invCode').value='';$('#invQueue').innerHTML='';invLimit=10;setInvMode('once');$('#hist').innerHTML='';renderDetail();show('#detail');loadFrame();loadLog();loadInvite();logTimer=setInterval(()=>{loadLog();loadInvite()},2500)}
+function closeDetail(){state.detail=null;clearInterval(liveTimer);clearInterval(logTimer);state.live=false}
+function renderDetail(){
+  const i=cur();if(!i)return;const [,label]=status(i);
+  $('#dTitle').textContent=nth(i.instance);$('#dSub').textContent=i.name;
+  const rows=[['상태',label],...(i.runUnit?[['유닛',{html:`<img class="unit-ic" style="height:20px;max-width:80px" src="${unitIcon(i.runUnit)}" alt="${esc(unitLabel(i.runUnit))}" title="${esc(unitLabel(i.runUnit))}">`}]]:[]),['단계',i.stageTitle||i.stage||'-'],['지점',i.step||'-'],['진행',i.stepIndex>=0?`${i.stepIndex+1} / ${i.stepCount}`:'-'],['업데이트',ago(i.updated)||'-']];
+  $('#kv').innerHTML=rows.map(([k,v])=>`<div class="kv"><span>${t(k)}</span><span>${v?.html??esc(v)}</span></div>`).join('');
+  const lp=i.loop;$('#dLoopRow').style.display=lp?'':'none';
+  if(lp){$('#dLoopN').textContent=`${lp.index}/${lp.total}`;$('[data-dl="-1"]').disabled=lp.total<=lp.index;$('[data-dl="1"]').disabled=lp.total>=99}
+  $('#dStop').disabled=!i.workerRunning;$('#dKill').disabled=!i.workerRunning;
+  $('#dLock .sw').classList.toggle('on',i.locked);
+  $$('[data-one]').forEach(b=>b.disabled=i.locked||i.workerRunning||!!i.pending);
+  $('[data-vm="launch"]').disabled=i.locked||i.vmRunning||!!i.pending;
+  ['launch-game','reboot','quit'].forEach(a=>$(`[data-vm="${a}"]`).disabled=i.locked||!i.vmRunning);
+  $('[data-vmx="clone"]').disabled=i.locked||i.workerRunning||!!i.pending;$('[data-vmx="remove"]').disabled=i.locked||i.workerRunning||!!i.pending;
+  const manual=!i.locked&&i.vmRunning&&!i.workerRunning;
+  $('#tapMode').disabled=!manual;$$('[data-key]').forEach(b=>b.disabled=!manual);
+  if(!manual&&state.tap){state.tap=false;$('#screen').classList.remove('tap');$('#tapMode').className='btn tonal'}
+  $('#capture').disabled=$('#live').disabled=!i.vmRunning;
+}
+function setShot(blob,label){if(shotUrl)URL.revokeObjectURL(shotUrl);shotUrl=URL.createObjectURL(blob);$('#screenImg').src=shotUrl;$('#stamp').textContent=label}
+async function loadFrame(){const n=state.detail;const r=await fetch(`/api/instances/${n}/frame?t=${Date.now()}`);if(r.ok&&state.detail===n)setShot(await r.blob(),t('마지막 화면'))}
+async function capture(silent){
+  const n=state.detail;if(n==null)return;
+  try{const r=await fetch(`/api/instances/${n}/screen`);if(!r.ok)throw new Error((await r.json()).message);
+    if(state.detail===n)setShot(await r.blob(),new Date().toLocaleTimeString(LOCALE[lang],{hour:'2-digit',minute:'2-digit',second:'2-digit'}))}
+  catch(e){if(!silent)toast(e.message,true);stopLive()}
+}
+function stopLive(){state.live=false;clearInterval(liveTimer);$('#live').className='btn tonal';$('#live').textContent=t('실시간')}
+$('#capture').onclick=()=>capture();
+$('#live').onclick=()=>{if(state.live)return stopLive();state.live=true;$('#live').className='btn primary';$('#live').textContent=t('실시간 끄기');capture(true);liveTimer=setInterval(()=>capture(true),1200)};
+$('#download').onclick=()=>{if(!shotUrl)return toast(t('먼저 캡쳐하세요'),true);const a=document.createElement('a');a.href=shotUrl;a.download=`vm${state.detail}-${new Date().toISOString().slice(0,19).replace(/[:T]/g,'')}.png`;a.click()};
+$('#tapMode').onclick=()=>{state.tap=!state.tap;$('#screen').classList.toggle('tap',state.tap);$('#tapMode').className='btn '+(state.tap?'primary':'tonal');if(state.tap&&!state.live)$('#live').click()};
+$('#screenImg').onclick=async e=>{
+  if(!state.tap)return;const img=e.target,r=img.getBoundingClientRect();
+  const x=Math.round((e.clientX-r.left)/r.width*960),y=Math.round((e.clientY-r.top)/r.height*540);
+  const dot=document.createElement('span');dot.className='ripple';dot.style.left=(e.clientX-r.left)+'px';dot.style.top=(e.clientY-r.top)+'px';$('#screen').appendChild(dot);setTimeout(()=>dot.remove(),500);
+  try{await api(`/instances/${state.detail}/tap`,{x,y});setTimeout(()=>capture(true),400)}catch(err){toast(err.message,true)}
+};
+$$('[data-key]').forEach(b=>b.onclick=async()=>{try{await api(`/instances/${state.detail}/key/${b.dataset.key}`,{});setTimeout(()=>capture(true),500)}catch(e){toast(e.message,true)}});
+async function loadLog(){
+  const n=state.detail;if(n==null)return;const box=$('#log');
+  const atBottom=box.scrollHeight-box.scrollTop-box.clientHeight<30;
+  try{const text=await api(`/instances/${n}/log?lines=300`);if(state.detail!==n)return;
+    box.innerHTML=text.split('\n').map(l=>{const c=/Exception|Timed out|failed|실패|失敗/.test(l)?'e':/\[(제어판|コントロール|Control)\]/.test(l)?'c':'';return c?`<span class="${c}">${esc(l)}</span>`:esc(l)}).join('\n')||`<span style="color:var(--text-3)">${t('로그 없음')}</span>`;
+    if(atBottom)box.scrollTop=box.scrollHeight}catch(e){}
+}
+$$('[data-one]').forEach(b=>b.onclick=()=>openRun(b.dataset.one,[state.detail]));
+$$('[data-dl]').forEach(b=>b.onclick=()=>{const lp=cur()?.loop;if(lp)act(()=>api(`/instances/${state.detail}/loop`,{total:lp.total+ +b.dataset.dl}))});
+// Stepper for a code's registration count: index -1 is the active code, others are queue positions.
+const mini=(k,limit,min,label)=>`<span class="mini"><button data-k="${k}" data-to="${limit-1}" ${limit-1<min?'disabled':''} aria-label="${t('줄이기')}">−</button><b>${label}</b><button data-k="${k}" data-to="${limit+1}" ${limit>=10?'disabled':''} aria-label="${t('늘리기')}">+</button></span>`;
+let invMode='once',invLimit=10;
+function setInvMode(m){invMode=m;$$('#invMode button').forEach(b=>b.classList.toggle('on',b.dataset.m===m));
+  $('#invLimRow').style.display=m==='permanent'?'':'none';$('#invLimN').textContent=t('{0}회',invLimit);
+  $$('#invLimRow [data-lim]').forEach(b=>b.disabled=b.dataset.lim<0?invLimit<=1:invLimit>=10);invHint()}
+function invHint(){const i=cur();const waiting=i&&i.step==='event-stories-complete'&&i.stepStatus==='awaiting-invitation'&&!i.workerRunning;
+  $('#invHint').textContent=(invMode==='once'?t('한 번 등록되면 다음 코드로 넘어가요'):t('{0}번 등록되면 다음 코드로 넘어가요',invLimit))+(waiting?t(' · 지금 쓰면 바로 입력해요'):'')}
+$$('#invMode button').forEach(b=>b.onclick=()=>setInvMode(b.dataset.m));
+$$('#invLimRow [data-lim]').forEach(b=>b.onclick=()=>{invLimit=Math.min(10,Math.max(1,invLimit+ +b.dataset.lim));setInvMode(invMode)});
+async function loadInvite(){
+  const n=state.detail;if(n==null)return;
+  try{const d=await api(`/instances/${n}/invite`);if(state.detail!==n)return;
+    const st=d.setting;
+    $('#invCur').innerHTML=st?`<span class="txt">${t('지금')} <code>${esc(st.code)}</code> · ${MODE[st.mode]}${d.total>d.uses?' · '+t('전체 {0}/{1}',d.total,d.max):''}</span>${mini(-1,d.limit,Math.max(1,d.uses),`${d.uses}/${d.limit}`)}`:`<span class="txt">${t('저장된 코드 없음')}</span>`;
+    $('#invQueue').innerHTML=d.queue.map((q,k)=>`<div class="qrow"><span class="qn">${k+1}</span><code>${esc(q.code)}</code>${mini(k,q.limit,1,t('{0}회',q.limit))}<button data-q="${k}" aria-label="${t('대기열에서 빼기')}">✕</button></div>`).join('');
+    $$('#invCur [data-to],#invQueue [data-to]').forEach(b=>b.onclick=async()=>{await act(()=>api(`/instances/${n}/invite/limit`,{index:+b.dataset.k,limit:+b.dataset.to}));loadInvite()});
+    $$('#invQueue [data-q]').forEach(b=>b.onclick=async()=>{await act(()=>api(`/instances/${n}/invite/queue/remove`,{index:+b.dataset.q}));loadInvite()});
+    $('#invClear').disabled=!st;
+    $('#hist').innerHTML=d.history.length?d.history.map(h=>{const [c,r]=RESULT[h.result]||['',h.result];
+      return `<div class="hrow">${h.image?`<img src="/api/instances/${n}/invites/${encodeURIComponent(h.image)}" data-full loading="lazy" alt="">`:'<div class="noimg"></div>'}
+        <div style="min-width:0"><div class="who">${esc(h.nickname||t('닉네임 미확인'))}<span class="res ${c}">${r}</span></div>
+        <div class="meta"><code>${esc(h.code)}</code> · ${h.loop?t('{0}회차',h.loop)+' · ':''}${MODE[h.mode]||t('직접 입력')} · ${new Date(h.time).toLocaleString(LOCALE[lang],{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})}</div>${h.rewards?`<button class="rw" data-src="/api/instances/${n}/invites/${encodeURIComponent(h.rewards)}">${t('보상 화면 보기')}</button>`:''}</div></div>`}).join('')
+      :`<div style="color:var(--text-3);font-size:13px;padding:4px 0">${t('아직 없음')}</div>`;
+    $$('#hist [data-full],#hist [data-src]').forEach(el=>el.onclick=()=>{$('#lightbox img').src=el.dataset.src||el.src;$('#lightbox').classList.add('show')});
+  }catch(e){}
+}
+$('#lightbox').onclick=()=>$('#lightbox').classList.remove('show');
+async function sendInvite(path){
+  const code=$('#invCode').value.trim();
+  if(!/^[A-Za-z0-9]{15}$/.test(code))return toast(t('초대 코드는 영문/숫자 15자예요'),true);
+  $('#invCode').blur();
+  try{toast((await api(`/instances/${state.detail}/${path}`,{code,mode:invMode,limit:invMode==='permanent'?invLimit:null})).message);$('#invCode').value=''}catch(e){toast(e.message,true)}
+  loadInvite();refresh();
+}
+$('#invSave').onclick=()=>sendInvite('invite');
+$('#invQueueAdd').onclick=()=>sendInvite('invite/queue');
+$('#invClear').onclick=async()=>{await act(()=>api(`/instances/${state.detail}/invite/clear`,{}));loadInvite()};
+$('#dStop').onclick=()=>act(()=>api(`/instances/${state.detail}/stop`,{}));
+$('#dKill').onclick=async()=>{if(await confirmBox(t('강제 종료할까요?'),t('진행 중인 동작이 즉시 끊깁니다. 보통은 중지를 쓰세요.'),t('강제 종료'),true))act(()=>api(`/instances/${state.detail}/kill`,{}))};
+$$('[data-vm]').forEach(b=>b.onclick=async()=>{const a=b.dataset.vm;
+  if(a==='quit'&&!await confirmBox(t('VM을 끌까요?'),t('실행 중인 매크로가 있으면 함께 중지합니다.'),t('끄기'),true))return;
+  if(a==='reboot'&&!await confirmBox(t('VM을 재부팅할까요?'),'',t('재부팅')))return;
+  act(()=>api(`/instances/${state.detail}/vm/${a}`,{}))});
+
+/* Top actions */
+$('#arrange').onclick=()=>act(()=>api('/arrange',{}));
+$('#validate').onclick=()=>act(()=>api('/validate',{}));
+$('#captureAll').onclick=async()=>{
+  const on=state.list.filter(i=>i.vmRunning);if(!on.length)return toast(t('켜진 VM이 없어요'),true);
+  toast(t('캡쳐하는 중…'));
+  await Promise.all(on.map(async i=>{try{const r=await fetch(`/api/instances/${i.instance}/screen`);if(!r.ok)return;const img=$(`[data-i="${i.instance}"] .thumb img`);
+    img.src=URL.createObjectURL(await r.blob());img.dataset.fresh='1';$(`[data-i="${i.instance}"] .empty`).style.display='none';setTimeout(()=>delete img.dataset.fresh,8000)}catch(e){}}));
+  toast(t('{0}대 캡쳐 완료',on.length));
+};
+function renderLan(urls){
+  $('#lanSw .sw').classList.toggle('on',!!urls);
+  $('#lanUrls').innerHTML=(urls||[]).map(u=>`<div class="url"><span>${esc(u)}</span><button data-copy="${esc(u)}">${t('복사')}</button></div>`).join('');
+  $$('[data-copy]').forEach(b=>b.onclick=()=>{navigator.clipboard.writeText(b.dataset.copy);toast(t('복사했어요'))});
+}
+$('#remote').onclick=async()=>{const s=await api('/server');renderLan(s.lan);show('#remoteSheet')};
+$('#lanSw').onclick=async()=>{const on=!$('#lanSw .sw').classList.contains('on');
+  try{const r=await api('/server/lan',{enabled:on,port:8787});renderLan(r.lan);toast(t(on?'원격 접속을 켰어요':'원격 접속을 껐어요'))}catch(e){toast(e.message,true)}};
+
+function renderLangs(){
+  $('#langList').innerHTML=Object.entries(LANGS).map(([k,v])=>`<button class="opt${k===lang?' on':''}" data-lang="${k}"><span class="radio"></span><span>${v}</span></button>`).join('');
+  $$('[data-lang]').forEach(b=>b.onclick=async()=>{try{await api('/language',{language:b.dataset.lang});try{localStorage.setItem('lang',b.dataset.lang)}catch(e){}location.reload()}catch(e){toast(e.message,true)}});
+}
+/* VM management: LDPlayer links, a setup/copy job (runs in its own process), removing VMs */
+const vm={mode:'new',base:null,count:1,install:'apkpure',setup:true,unit:'mmj',start:false,loops:1,inv:{mode:'permanent',limit:10}};
+let vmInfo=null;
+function ldLinks(ld,game){
+  const a=game?[[t('게임 페이지 (apkpure)'),ld.gamePage]]:[];
+  if(ld.versionUrl)a.push([t('지금 버전 받기 ({0})',ld.version),ld.versionUrl]);
+  if(ld.version!==ld.validated)a.push([t('검증된 버전 받기 ({0})',ld.validated),ld.validatedUrl]);
+  a.push([t('LD플레이어 9 최신 버전'),ld.latestUrl],[t('공식 사이트'),ld.site]);
+  return a.map(([l,u])=>`<a class="linkbtn" href="${esc(u)}" target="_blank" rel="noopener">${esc(l)}</a>`).join('');
+}
+async function loadVms(){try{vmInfo=await api('/vms');renderVmInfo()}catch(e){}}
+function renderVmInfo(){
+  if(!vmInfo)return;const ld=vmInfo.ld,p=vmInfo.provision;
+  const pill=$('#provPill');pill.style.display=p&&p.alive?'':'none';
+  if(p&&p.alive)pill.querySelector('em').textContent=t('VM 세팅 중')+' · '+(p.detail||p.label);
+  $('#ldLinks').innerHTML=ldLinks(ld);
+  $('#vmLdFolder').textContent=ld.folder||t('찾지 못함');$('#vmLdVersion').textContent=ld.version||'-';$('#vmLinks').innerHTML=ldLinks(ld,true)+(state.local?`<button class="linkbtn" id="gameUpd">${t('게임 업데이트')}</button>`:'');renderDisk();
+  $('#gameUpd')?.addEventListener('click',async()=>{if(await confirmBox(t('게임을 업데이트할까요?'),t('apkpure 최신 버전으로 올려요. 매크로가 돌고 있는 VM은 건너뛰고, 계정과 데이터는 그대로예요.'),t('업데이트')))act(()=>api('/vms/update',{}))});
+  const jobState={running:t('진행 중'),done:t('완료'),failed:t('실패'),cancelled:t('취소됨')}[p?.state]||p?.state;
+  $('#provBox').innerHTML=p?`<div class="prov ${p.state}"><div><b>${jobState}</b> · ${esc(p.state==='running'?(p.detail||p.label):p.label)}</div>
+    <small>${p.instances.map(nth).join(', ')||'-'} · ${ago(p.updated)}${p.error?' · '+esc(p.error):''}</small>${p.alive?`<button class="btn tonal" id="provCancel">${t('멈추기')}</button>`:''}</div>`:'';
+  if(p&&p.alive)$('#provCancel').onclick=()=>act(()=>api('/vms/provision/cancel',{}));
+}
+function openVm(mode,base){
+  vm.mode=mode;vm.base=base??null;vm.count=mode==='clone'?2:1;vm.start=false;vm.loops=1;$('#vCode').value='';
+  if(!$('#vUnitSeg').children.length)fillUnits($('#vUnitSeg'),k=>{vm.unit=k;renderVm()});
+  if(state.event?.unit)vm.unit=state.event.unit;
+  renderVm();renderVmInfo();show('#vmSheet');loadVms();
+}
+function renderVm(){
+  const clone=vm.mode==='clone',n=clone?vm.count-1:vm.count;
+  $('#vmTitle').textContent=clone?t('{0} 복제',nth(vm.base)):t('VM 관리');
+  $('#vmSub').style.display=clone?'none':'';
+  $('#vmNewOnly').style.display=$('#vmSetupOnly').style.display=clone?'none':'';
+  $('#vmCountLabel').textContent=t(clone?'복제할 개수':'만들 VM 수');$('#vmCountN').textContent=t('{0}대',n);
+  $('#vmCountHint').textContent=clone?'':vm.count>1?t('1대를 세팅한 뒤 {0}대를 복제해요',vm.count-1):t('1대만 만들어요');
+  $('[data-vc="-1"]').disabled=n<=1;$('[data-vc="1"]').disabled=n>=30;
+  $$('#vInstall button').forEach(b=>b.classList.toggle('on',b.dataset.i===vm.install));
+  $('#vInstallHint').textContent=t({apkpure:'apkpure 최신 버전을 셐 매크로 창에서 받아 설치하고 QooApp도 깔아요',none:'게임 없이 VM만 만들어요'}[vm.install]);
+  $('#vSetupSw .sw').classList.toggle('on',vm.setup);$('#vStartSw .sw').classList.toggle('on',vm.start);
+  $('#vStartLabel').textContent=t(clone?'복제한 VM에서 바로 매크로 시작':'세팅 후 바로 매크로 시작');
+  $('#vUnitBox').style.display=(!clone&&vm.setup)||vm.start?'':'none';
+  markUnits($('#vUnitSeg'),'#vUnitHint',vm.unit);
+  $('#vStartOpts').style.display=vm.start?'':'none';
+  $('#vLoopN').textContent=t('{0}회',vm.loops);$('[data-vl="-1"]').disabled=vm.loops<=1;$('[data-vl="1"]').disabled=vm.loops>=99;
+  $$('#vMode button').forEach(b=>b.classList.toggle('on',b.dataset.m===vm.inv.mode));
+  $('#vLimRow').style.display=vm.inv.mode==='permanent'?'':'none';$('#vLimN').textContent=t('{0}회',vm.inv.limit);
+  $('[data-vlim="-1"]').disabled=vm.inv.limit<=1;$('[data-vlim="1"]').disabled=vm.inv.limit>=10;
+  $('#vmGo').textContent=clone?t('{0}대 복제',n):t('세팅 시작');
+  renderDisk();
+}
+// Copies need about their source VM's size each; new VMs about the largest existing one.
+const gb=b=>(b/2**30).toFixed(1)+'GB';
+function renderDisk(){
+  const d=vmInfo?.disk;if(!d||!d.drive)return $('#vmDisk').textContent='-';
+  const clone=vm.mode==='clone',each=clone?(d.vms[vm.base]||0):d.newVm,count=clone?vm.count-1:vm.count,need=each*count+2*2**30;
+  const el=$('#vmDisk');el.textContent=t('{0} 남음 · 필요 약 {1}',`${d.drive} ${gb(d.free)}`,gb(need));el.style.color=d.free<need?'var(--red)':'';
+}
+$$('[data-vc]').forEach(b=>b.onclick=()=>{vm.count=Math.min(vm.mode==='clone'?31:30,Math.max(vm.mode==='clone'?2:1,vm.count+ +b.dataset.vc));renderVm()});
+$$('#vInstall button').forEach(b=>b.onclick=()=>{vm.install=b.dataset.i;renderVm()});
+$('#vSetupSw').onclick=()=>{vm.setup=!vm.setup;renderVm()};
+$('#vStartSw').onclick=()=>{vm.start=!vm.start;renderVm()};
+$$('[data-vl]').forEach(b=>b.onclick=()=>{vm.loops=Math.min(99,Math.max(1,vm.loops+ +b.dataset.vl));renderVm()});
+$$('#vMode button').forEach(b=>b.onclick=()=>{vm.inv.mode=b.dataset.m;renderVm()});
+$$('[data-vlim]').forEach(b=>b.onclick=()=>{vm.inv.limit=Math.min(10,Math.max(1,vm.inv.limit+ +b.dataset.vlim));renderVm()});
+$('#vmGo').onclick=async()=>{
+  const clone=vm.mode==='clone',code=$('#vCode').value.trim();
+  if(vm.start&&code&&!/^[A-Za-z0-9]{15}$/.test(code))return toast(t('초대 코드는 영문/숫자 15자예요'),true);
+  if(vm.start&&vm.loops>1&&!(code&&vm.inv.mode==='permanent'))return toast(t('반복하려면 영구 초대 코드를 넣으세요'),true);
+  if(((!clone&&vm.setup)||vm.start)&&!await unitOk(vm.unit))return;
+  if(!clone&&!await confirmBox(t('VM {0}대를 세팅할까요?',vm.count),t('게임 설치와 튜토리얼에 시간이 걸려요. 진행 상황은 이 창과 카드에서 볼 수 있어요.'),t('세팅 시작')))return;
+  const body={name:$('#vName').value.trim()||null,count:vm.count,base:vm.base,install:clone?'none':vm.install,setup:!clone&&vm.setup,unit:vm.unit,
+    start:vm.start,startBase:!clone,loops:vm.start?vm.loops:1,inviteCode:vm.start&&code?code:null,inviteMode:vm.inv.mode,inviteLimit:vm.inv.mode==='permanent'?vm.inv.limit:null};
+  try{toast((await api('/vms/provision',body)).message);await loadVms();refresh()}catch(e){toast(e.message,true)}
+};
+$('#vmBtn').onclick=()=>openVm('new');
+$('#vmNew').onclick=()=>openVm('new');
+$('#cloneSel').onclick=()=>{if(state.sel.size===1)openVm('clone',[...state.sel][0])};
+$('#removeSel').onclick=async()=>{const targets=[...state.sel].sort((a,b)=>a-b);
+  if(!await confirmBox(t('{0} VM을 지울까요?',nths(targets)),t('LD플레이어에서 VM이 완전히 삭제돼요. 매크로 기록은 local/removed에 남아요.'),t('삭제'),true))return;
+  for(const n of targets){try{toast((await api(`/instances/${n}/remove`,{})).message);state.sel.delete(n)}catch(e){toast(e.message,true);break}}
+  refresh()};
+$('#provPill').onclick=()=>openVm('new');
+$('[data-vmx="clone"]').onclick=()=>openVm('clone',state.detail);
+$('[data-vmx="remove"]').onclick=async()=>{const n=state.detail;
+  if(!await confirmBox(t('{0} VM을 지울까요?',nth(n)),t('LD플레이어에서 VM이 완전히 삭제돼요. 매크로 기록은 local/removed에 남아요.'),t('삭제'),true))return;
+  hide($('#detail'));await act(()=>api(`/instances/${n}/remove`,{}))};
+setInterval(()=>{if(!document.hidden)loadVms()},4000);
+$('#ldSave').onclick=async()=>{try{toast((await api('/ldplayer',{path:$('#ldPath').value})).message);setTimeout(()=>location.reload(),800)}catch(e){toast(e.message,true)}};
+$('#langBtn').onclick=()=>{renderLangs();show('#langSheet')};
+
+(async function init(){
+  state.meta=await api('/meta');
+  // The server's language is shared by every client (and its messages and logs); follow it.
+  if(state.meta.language&&state.meta.language!==lang){lang=state.meta.language;try{localStorage.setItem('lang',lang)}catch(e){}translatePage()}
+  state.stages=[...state.meta.plan];
+  fillUnits($('#unitSeg'),k=>{state.unit=k;markUnits($('#unitSeg'),'#unitHint',k)});
+  loadEvent();setInterval(loadEvent,10*60e3);
+  const sel=$('#pointDetail');
+  const g1=document.createElement('optgroup');g1.label=t('단계 시작');state.meta.stages.forEach(s=>g1.appendChild(new Option(s.title,s.name)));sel.appendChild(g1);
+  const g2=document.createElement('optgroup');g2.label=t('세부 지점');state.meta.steps.forEach(s=>g2.appendChild(new Option(s,s)));sel.appendChild(g2);
+  $('#ldNote').style.display=state.meta.ldPlayer?'none':'';loadVms();
+  const s=await api('/server');state.local=s.local;if(!s.local)$('#remote').style.display='none';
+  await refresh();setInterval(refresh,2000);
+})();
+</script>
+</body>
+</html>

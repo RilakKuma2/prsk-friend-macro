@@ -1,0 +1,7 @@
+bin/
+obj/
+local/
+artifacts/
+dist/
+sekai-statics/
+*.lock

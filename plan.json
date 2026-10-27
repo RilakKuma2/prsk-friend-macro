@@ -1,0 +1,12 @@
+{
+  "Stages": [
+    "onboarding",
+    "gacha",
+    "deck",
+    "music",
+    "boost",
+    "invitation",
+    "autolive",
+    "eventstory"
+  ]
+}

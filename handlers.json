@@ -1,0 +1,13 @@
+{
+  "Name": "invite-invalid-dismiss",
+  "Image": "templates/invite-invalid-dismiss.png",
+  "X": 480,
+  "Y": 420,
+  "Left": 303,
+  "Top": 260,
+  "Width": 350,
+  "Height": 20,
+  "Action": "tap",
+  "EndX": 0,
+  "EndY": 0
+}

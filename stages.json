@@ -1,0 +1,50 @@
+[
+  {
+    "Name": "onboarding",
+    "Start": "google-back",
+    "End": "gift-back-home",
+    "Title": "초기화 후 튜토리얼 및 보상"
+  },
+  {
+    "Name": "gacha",
+    "Start": "gacha-open",
+    "End": "gacha-back-home",
+    "Title": "가챠 2종"
+  },
+  {
+    "Name": "deck",
+    "Start": "members-open",
+    "End": "member-back-home",
+    "Title": "추천 덱"
+  },
+  {
+    "Name": "music",
+    "Start": "area-open",
+    "End": "shop-back",
+    "Title": "음악 구매"
+  },
+  {
+    "Name": "boost",
+    "Start": "boost-settings-open",
+    "End": "boost-receipt-dismiss",
+    "Title": "라이브 보너스"
+  },
+  {
+    "Name": "invitation",
+    "Start": "friend-open",
+    "End": "friend-back-home",
+    "Title": "친구 초대"
+  },
+  {
+    "Name": "autolive",
+    "Start": "live-open",
+    "End": "auto-live-started",
+    "Title": "연속 오토 라이브"
+  },
+  {
+    "Name": "eventstory",
+    "Start": "auto-end-notice",
+    "End": "event-stories-complete",
+    "Title": "해금 알림 정리 및 이벤트 스토리 연속 읽기"
+  }
+]
