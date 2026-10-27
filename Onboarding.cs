@@ -134,6 +134,9 @@ internal static partial class Program
                 if(sent) { Console.WriteLine("Verified basic-data download dialog closed."); return; }
                 throw new Exception("Basic-data choice dialog disappeared before verification.");
             }
+            // The dialog takes a moment to close after the tap, and the game's touch ring may still cover the button:
+            // wait for it to close, never tap again.
+            if(sent) { await Task.Delay(800); continue; }
             if(!BasicDataSelected(screen))
             {
                 await Shell("input tap 340 269");
