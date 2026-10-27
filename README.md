@@ -29,7 +29,7 @@ LD플레이어 9에서 프로젝트 세카이(일본판)를 여러 VM으로 돌�
 
 Apple silicon 맥에서는 LD플레이어 대신 BlueStacks Air로 돌아갑니다. (macOS 15, BlueStacks Air 5.21.790에서 확인)
 
-1. [Releases](https://github.com/RilakKuma2/prsk-friend-macro/releases)에서 `SekaiMacro-mac-arm64.dmg`를 받아 열고, `SekaiMacro.app`을 응용 프로그램 폴더로 끌어 넣습니다. 서명되지 않은 앱이라 처음 한 번은 앱을 Control-클릭 › 열기로 엽니다.
+1. [Releases](https://github.com/RilakKuma2/prsk-friend-macro/releases/latest)에서 `SekaiMacro-mac-arm64.dmg`를 받아 열고, `SekaiMacro.app`을 응용 프로그램 폴더로 끌어 넣습니다. 서명되지 않은 앱이라 처음 한 번은 앱을 Control-클릭 › 열기로 엽니다.
 2. 앱을 열면 제어판 창이 뜹니다. 창을 닫거나 Cmd+Q로 끄면 제어판이 꺼지고, 이미 시작한 매크로는 계속 돌다가 카드의 중지 버튼으로 멈춥니다.
 
 설정과 기록은 `~/Library/Application Support/SekaiMacro`에 남습니다(제어판 로그는 그 안의 `local/panel.log`). 앱을 새 버전으로 바꿔도 그대로이고, 흐름 데이터와 템플릿은 앱을 열 때마다 새 버전으로 맞춰집니다.
