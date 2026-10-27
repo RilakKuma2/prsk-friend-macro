@@ -942,16 +942,18 @@ internal static partial class Program
         List<(short,short,int)> up=[(3,47,0),(3,57,-1)];
         if(touch.Pressure) { down.Add((3,58,1)); up.Add((3,58,0)); }
         down.AddRange([(1,330,1),(0,0,0)]); up.AddRange([(1,330,0),(0,0,0)]);
-        string writeDown=$"printf '{EventBytes([..down])}'",writeUp=$"printf '{EventBytes([..up])}'";
+        string writeDown=$"printf '{EventBytes([..down])}'",writeUp=$"printf '{EventBytes([..up])}'",rest="0.100";
         if(touch.Files)
         {
+            // Each cat takes about 13 ms, so the rest after a tap is shorter to keep 8 taps a second (measured on BlueStacks Air).
+            rest="0.075";
             await File.WriteAllBytesAsync("artifacts/story-touch-down.bin",EventData([..down]));
             await File.WriteAllBytesAsync("artifacts/story-touch-up.bin",EventData([..up]));
             await Run(Adb,"-s",Serial,"push","artifacts/story-touch-down.bin","/data/local/tmp/sekai-touch-down.bin");
             await Run(Adb,"-s",Serial,"push","artifacts/story-touch-up.bin","/data/local/tmp/sekai-touch-up.bin");
             writeDown="cat /data/local/tmp/sekai-touch-down.bin"; writeUp="cat /data/local/tmp/sekai-touch-up.bin";
         }
-        var script=$"rm -f /data/local/tmp/sekai-story.stop\nexec 3>{touch.Device} || exit 1\ni=0\nwhile [ $i -lt {durationMs/125} ] && [ ! -e /data/local/tmp/sekai-story.stop ]; do\n{writeDown} >&3\nsleep 0.025\n{writeUp} >&3\nsleep 0.100\ni=$((i+1))\ndone\n{writeUp} >&3\n";
+        var script=$"rm -f /data/local/tmp/sekai-story.stop\nexec 3>{touch.Device} || exit 1\ni=0\nwhile [ $i -lt {durationMs/125} ] && [ ! -e /data/local/tmp/sekai-story.stop ]; do\n{writeDown} >&3\nsleep 0.025\n{writeUp} >&3\nsleep {rest}\ni=$((i+1))\ndone\n{writeUp} >&3\n";
         await File.WriteAllTextAsync("artifacts/story-taps.sh",script,new UTF8Encoding(false));
         await Run(Adb,"-s",Serial,"push","artifacts/story-taps.sh","/data/local/tmp/sekai-story-taps.sh");
         using var process=new Process { StartInfo=new ProcessStartInfo(Adb) { UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true } };
@@ -1206,8 +1208,18 @@ internal static partial class Program
         }
         throw new Exception("Gacha skip timed out. The draw is NOT retried.");
     }
+    // Unity's text input bar along the bottom edge. Its button is labeled in the system language: "확인" on the Korean
+    // LDPlayer (the template), "OK" on BlueStacks; the white strip with lettering at its right end is the same.
+    static bool IsTextInputBar(Bitmap screen)
+    {
+        int white=0,total=0,ink=0;
+        for(var y=462;y<538;y+=4) for(var x=0;x<860;x+=8) { total++; var p=screen.GetPixel(x,y); if(p.R>245 && p.G>245 && p.B>245) white++; }
+        for(var y=486;y<516;y++) for(var x=870;x<950;x++) { var p=screen.GetPixel(x,y); if(p.R+p.G+p.B<300) ink++; }
+        return white>=total*9/10 && ink>=20;
+    }
     static double Difference(Bitmap screen,Bitmap expected,Step step)
     {
+        if(step.Name is "song-search-query" or "live-song-query" && IsTextInputBar(screen)) return 0;
         if(step.Name=="event-stories-complete") return IsEventStoryList(screen)?0:255;
         if(step.Name=="event-intro-reward") return IsStoryReward(screen)?0:255;
         if(step.Name=="result-story-unlocks")
