@@ -23,7 +23,6 @@ internal static partial class Program
     static string? ControlRoot;
     static string InstanceDir(int instance)=>instance==1?Workspace:Path.Combine(Workspace,"local","instances",instance.ToString());
     static string ArtifactsDir(int instance)=>Path.Combine(InstanceDir(instance),"artifacts");
-    static string SerialOf(int instance)=>"emulator-"+(5554+instance*2);
     static void RequireInstance(int instance) { if(!AllowedInstances.ContainsKey(instance)) throw new ArgumentException(T("허용되지 않은 인스턴스입니다: ","許可されていないインスタンスです: ","Instance not allowed: ")+instance); }
 
     // A locked instance is left alone: no starts, VM actions, manual input or automatic invite entry. Stop still works.
@@ -41,7 +40,7 @@ internal static partial class Program
 
     static string MacroExecutable()
     {
-        var apphost=Path.Combine(AppContext.BaseDirectory,"SekaiMacro.exe");
+        var apphost=Path.Combine(AppContext.BaseDirectory,OperatingSystem.IsWindows()?"SekaiMacro.exe":"SekaiMacro");
         return File.Exists(apphost)?apphost:Environment.ProcessPath!;
     }
 
@@ -64,10 +63,10 @@ internal static partial class Program
             Dictionary<int,string[]> rows=[];
             try
             {
-                foreach(var row in (await Run(Ld,"list2")).Split('\n').Select(x=>x.Trim().Split(',')).Where(x=>x.Length>=7))
+                foreach(var row in (await VmList()).Split('\n').Select(x=>x.Trim().Split(',')).Where(x=>x.Length>=7))
                     if(int.TryParse(row[0],out var index)) rows[index]=row;
             }
-            catch(Exception ex) { Console.Error.WriteLine("ldconsole list2 failed: "+ex.Message); }
+            catch(Exception ex) { Console.Error.WriteLine("VM list failed: "+ex.Message); }
             VmListCache=(DateTime.UtcNow,rows);
             return rows;
         }
@@ -161,7 +160,7 @@ internal static partial class Program
         {
             Instances=AllowedInstances.Select(p=>new { Instance=p.Key,Name=p.Value }),
             Stages=LoadStagesCached().Select(s=>new { s.Name,Title=StageTitle(s),s.Start,s.End }),
-            Language,LdPlayer=LdFolder,
+            Language,LdPlayer=EmulatorFolder,Emulator=IsBlueStacks?"bluestacks":"ldplayer",
             Plan=plan.Stages,
             Steps=LoadFlowCached().Select(s=>s.Name),
             Units=UnitLabels(),
@@ -292,19 +291,20 @@ internal static partial class Program
             var prepare=await RunMacro("prepare","--instance",instance.ToString());
             if(prepare.Code!=0) throw new Exception(T("prepare 실패: ","prepare失敗: ","prepare failed: ")+prepare.Output.Trim());
             PendingWork[instance]=T("VM 켜는 중","VM起動中","Booting VM");
-            await Run(Ld,"launch","--index",instance.ToString());
+            await VmLaunch(instance);
             PendingWork[instance]=T("VM 부팅 대기 중","VM起動待ち","Waiting for VM boot");
             var deadline=DateTime.UtcNow.AddMinutes(3); var booted=false;
             while(DateTime.UtcNow<deadline && !booted)
             {
-                try { booted=(await Run(Adb,"-s",SerialOf(instance),"shell","getprop sys.boot_completed")).Trim()=="1"; }
+                try { await ConnectVm(instance); booted=(await Run(Adb,"-s",SerialOf(instance),"shell","getprop sys.boot_completed")).Trim()=="1"; }
                 catch { }
                 if(!booted) await Task.Delay(2000);
             }
             if(!booted) break;
             VmListCache=(DateTime.MinValue,[]);
             if(await LiveResolutionOk(SerialOf(instance))) { ScheduleArrange(); return; }
-            if(attempt>0) throw new Exception(T("VM 해상도가 960x540 DPI160으로 맞춰지지 않아요.","VMの解像度が960x540 DPI160になりません。","The VM resolution does not become 960x540 DPI160."));
+            // BlueStacks settings are changed in BlueStacks itself, so a restart would not fix them.
+            if(attempt>0 || IsBlueStacks) throw new Exception(T("VM 해상도가 960x540 DPI160으로 맞춰지지 않아요.","VMの解像度が960x540 DPI160になりません。","The VM resolution does not become 960x540 DPI160."));
             AppendControlLog(instance,T("해상도가 달라서 설정을 고치고 VM을 다시 켜요.","解像度が違うため設定を直してVMを再起動します。","Resolution differs; fixing settings and restarting the VM."));
             await QuitVm(instance);
         }
@@ -329,12 +329,12 @@ internal static partial class Program
                 return T($"{instance}번 VM을 켜는 중입니다.",$"{instance}番のVMを起動中です。",$"Booting #{instance} VM.");
             case "quit":
                 if(IsWorkerRunning(instance)) StopWorker(instance);
-                await Run(Ld,"quit","--index",instance.ToString());
+                await VmQuitRequest(instance);
                 VmListCache=(DateTime.MinValue,[]);
                 return T($"{instance}번 VM을 껐습니다.",$"{instance}番のVMを停止しました。",$"Turned off #{instance} VM.");
             case "reboot":
                 if(IsWorkerRunning(instance)) throw new InvalidOperationException(T("매크로 실행 중에는 재부팅할 수 없습니다. 먼저 중지하세요.","マクロ実行中は再起動できません。先に停止してください。","Cannot reboot while a macro is running. Stop it first."));
-                await Run(Ld,"reboot","--index",instance.ToString());
+                await VmReboot(instance);
                 VmListCache=(DateTime.MinValue,[]);
                 return T($"{instance}번 VM을 재부팅합니다.",$"{instance}番のVMを再起動します。",$"Rebooting #{instance} VM.");
             case "launch-game":
@@ -562,17 +562,23 @@ internal static partial class Program
 
     static int InviteWatcherStarted;
     // VMs turned on outside the macro (LDPlayer's own manager) are measured once after boot; a wrong one is fixed and restarted.
+    // A locked VM is left alone, and a BlueStacks VM is only reported: its settings are changed in BlueStacks.
     static readonly HashSet<int> ResolutionChecked=[],SeenOff=[];
     static async Task CheckTurnedOnVm(int instance)
     {
         if(!await IsVmRunning(instance)) { ResolutionChecked.Remove(instance); SeenOff.Add(instance); return; }
-        if(ResolutionChecked.Contains(instance) || IsWorkerRunning(instance) || PendingWork.ContainsKey(instance) || ProvisionUses(instance)) return;
+        if(ResolutionChecked.Contains(instance) || IsLocked(instance) || IsWorkerRunning(instance) || PendingWork.ContainsKey(instance) || ProvisionUses(instance)) return;
         try { if((await Run(Adb,"-s",SerialOf(instance),"shell","getprop sys.boot_completed")).Trim()!="1") return; }
         catch { return; }
         ResolutionChecked.Add(instance);
         // Only VMs that turned on while the control panel runs; restarting the panel leaves windows where they are.
         if(SeenOff.Remove(instance)) ScheduleArrange();
         if(await LiveResolutionOk(SerialOf(instance))) return;
+        if(IsBlueStacks)
+        {
+            AppendControlLog(instance,T("해상도가 960x540 DPI160이 아니에요. 블루스택 설정(디스플레이)에서 맞춰주세요.","解像度が960x540 DPI160ではありません。BlueStacksの設定(ディスプレイ)で合わせてください。","The resolution is not 960x540 DPI160. Set it in BlueStacks settings (Display)."));
+            return;
+        }
         AppendControlLog(instance,T("해상도가 달라서 설정을 고치고 VM을 다시 켜요.","解像度が違うため設定を直してVMを再起動します。","Resolution differs; fixing settings and restarting the VM."));
         PendingWork[instance]=T("해상도 맞추는 중","解像度を調整中","Fixing resolution");
         _=Task.Run(async()=>
@@ -594,7 +600,7 @@ internal static partial class Program
             try
             {
                 await Task.Delay(5000,delay.Token);
-                if((await VmRows()).Values.Count(r=>r[4]=="1")>=2) await Run(Ld,"sortWnd");
+                if((await VmRows()).Values.Count(r=>r[4]=="1")>=2) await VmArrange();
             }
             catch(OperationCanceledException) { }
             catch(Exception ex) { Console.Error.WriteLine("Arrange failed: "+ex.Message); }

@@ -1,8 +1,11 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Drawing;
+#if WINDOWS
 using System.Drawing.Imaging;
+#endif
 using System.Xml.Linq;
 using System.Text.RegularExpressions;
 
@@ -10,8 +13,8 @@ internal static partial class Program
 {
     static int Instance = 1;
     static string Target = "셐 계정생성직전-1";
-    static string Serial => "emulator-"+(5554+Instance*2);
-    // Every LDPlayer VM is an instance (ldconsole index -> exact name). The list is re-read so added VMs appear;
+    static string Serial => SerialOf(Instance);
+    // Every emulator VM is an instance (index -> exact name). The list is re-read so added VMs appear;
     // workers still pin the name they started with and stop if it changes.
     static readonly object InstancesLock=new();
     static (DateTime At,Dictionary<int,string> List) InstanceCache=(DateTime.MinValue,[]);
@@ -25,23 +28,24 @@ internal static partial class Program
                 var found=new Dictionary<int,string>();
                 try
                 {
-                    using var process=Process.Start(new ProcessStartInfo(Ld,"list2") { UseShellExecute=false,RedirectStandardOutput=true,CreateNoWindow=true,StandardOutputEncoding=Encoding.UTF8 })!;
-                    var output=process.StandardOutput.ReadToEnd(); process.WaitForExit(15000);
-                    foreach(var row in output.Split('\n').Select(x=>x.Trim().Split(',')).Where(x=>x.Length>=7))
+                    foreach(var row in VmListNow().Split('\n').Select(x=>x.Trim().Split(',')).Where(x=>x.Length>=7))
                         if(int.TryParse(row[0],out var index) && row[1].Length>0) found[index]=row[1];
                 }
-                catch(Exception ex) { Console.Error.WriteLine("ldconsole list2 failed: "+ex.Message); }
+                catch(Exception ex) { Console.Error.WriteLine("VM list failed: "+ex.Message); }
                 // A failed read keeps the last good list.
                 InstanceCache=(DateTime.UtcNow,found.Count>0?found:InstanceCache.List);
                 return InstanceCache.List;
             }
         }
     }
+    // The foreground activity: Android 9 (LDPlayer) names it mResumedActivity, Android 13 (BlueStacks Air) topResumedActivity.
+    const string ResumedActivity = "dumpsys activity activities | grep -E 'mResumedActivity|topResumedActivity' || true";
     const string Package = "com.sega.pjsekai";
     const string Data = "/sdcard/Android/data/" + Package;
     const string Saved = Data + ".sekai-macro-preserved";
     static string Unit = "mmj";
     static bool StopRequested;
+    static PosixSignalRegistration? HangupIgnored;
     static string? From;
     static string? Until;
     static string? InviteCode;
@@ -61,7 +65,11 @@ internal static partial class Program
         try
         {
             Console.OutputEncoding=Encoding.UTF8;
-            Console.CancelKeyPress+=(_,e)=>{ e.Cancel=true; StopRequested=true; };
+            // Jobs the panel starts (workers, VM setup) stop through their stop files. On macOS they share the panel's
+            // Terminal, so its Ctrl+C or closing that window must not stop them, as on Windows where they have no console.
+            var job=args.Contains("--background") || args.FirstOrDefault()=="provision";
+            Console.CancelKeyPress+=(_,e)=>{ e.Cancel=true; if(!job) StopRequested=true; };
+            if(job && !OperatingSystem.IsWindows()) HangupIgnored=PosixSignalRegistration.Create(PosixSignal.SIGHUP,c=>c.Cancel=true);
             if(args.Length==0) args=["launcher"];
             var codeOption=Array.IndexOf(args,"--code");
             InviteCode=codeOption>=0?args.ElementAtOrDefault(codeOption+1):null;
@@ -130,6 +138,7 @@ internal static partial class Program
                 Directory.SetCurrentDirectory(work);
             }
             if(args[0]=="validate") { ValidateFlow(); Console.WriteLine("Flow, images, stage boundaries and plan validated; no device commands sent."); return 0; }
+            if(args[0]=="check-touch") { Console.WriteLine(await StoryTouchDevice()+" (no input sent)"); return 0; }
             if(args.Contains("--background"))
             {
                 Directory.CreateDirectory("artifacts");
@@ -298,7 +307,7 @@ internal static partial class Program
         for(var attempt=0;attempt<3;attempt++)
         {
         // Match both immutable session index and exact name; no wildcard/broadcast commands.
-        var row = (await Run(Ld, "list2")).Split('\n').Select(x => x.Trim().Split(',')).SingleOrDefault(x => x.Length >= 7 && x[0] == Instance.ToString());
+        var row = await VmRow(Instance);
         if(row!=null && row[1]!=Target) throw new Exception("Instance name changed. Stopped.");
         if(row!=null && row[4]=="1")
         {
@@ -311,8 +320,14 @@ internal static partial class Program
     }
     static async Task PrepareInstance()
     {
-        var row=(await Run(Ld,"list2")).Split('\n').Select(x=>x.Trim().Split(',')).SingleOrDefault(x=>x.Length>=7 && x[0]==Instance.ToString());
+        var row=await VmRow(Instance);
         if(row==null || row[1]!=Target) throw new Exception("Instance identity differs. Nothing changed.");
+        if(IsBlueStacks)
+        {
+            RequireBlueStacksSettings(Instance);
+            Console.WriteLine($"Checked {Instance}: {Target}, 960x540 DPI160, ADB enabled.");
+            return;
+        }
         var path=LdConfig(Instance);
         var config=System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(path))!;
         var matches=config["advancedSettings.resolution"]?["width"]?.GetValue<int>()==960 && config["advancedSettings.resolution"]?["height"]?.GetValue<int>()==540
@@ -339,23 +354,26 @@ internal static partial class Program
     }
     static async Task EnsureResolution()
     {
-        var row=(await Run(Ld,"list2")).Split('\n').Select(x=>x.Trim().Split(',')).SingleOrDefault(x=>x.Length>=7 && x[0]==Instance.ToString());
+        var row=await VmRow(Instance);
         if(row==null) return;
         if(row[4]!="1") { await PrepareInstance(); return; }
         if(await LiveResolutionOk(Serial)) return;
+        if(IsBlueStacks) throw new Exception("VM is not running at 960x540 DPI160. Change it in BlueStacks settings (Display) and restart the instance.");
         Console.WriteLine("VM is not running at 960x540 DPI160; restarting it with fixed settings.");
         await QuitVm(Instance);
         await PrepareInstance();
-        await Run(Ld,"launch","--index",Instance.ToString());
+        await VmLaunch(Instance);
         var deadline=DateTime.UtcNow.AddMinutes(3);
         while(DateTime.UtcNow<deadline)
         {
-            try { if((await Shell("getprop sys.boot_completed")).Trim()=="1") break; } catch { }
+            try { await ConnectVm(Instance); if((await Shell("getprop sys.boot_completed")).Trim()=="1") break; } catch { }
             await Task.Delay(2000);
         }
         if(!await LiveResolutionOk(Serial)) throw new Exception("VM resolution is still not 960x540 DPI160 after restarting with fixed settings.");
         LastGuard=DateTime.MinValue;
     }
+#if WINDOWS
+    // macOS reads text with Vision instead (MacApp.cs).
     static async Task<string> Ocr(string path)
     {
         var engine=Windows.Media.Ocr.OcrEngine.TryCreateFromLanguage(new Windows.Globalization.Language("ja"))??throw new Exception("Windows Japanese OCR is unavailable.");
@@ -374,6 +392,7 @@ internal static partial class Program
         var path="artifacts/ocr-region.png"; enlarged.Save(path,ImageFormat.Png);
         return Regex.Replace(await Ocr(path),@"\s+","");
     }
+#endif
     static async Task SelectMemories()
     {
         // Reset the left list to its upper edge, then inspect entries in visual order.
@@ -570,7 +589,7 @@ internal static partial class Program
                 await Guard();
                 if(DateTime.UtcNow-lastActivityCheck>TimeSpan.FromSeconds(5))
                 {
-                    var activity=await Shell("dumpsys activity activities | grep mResumedActivity || true");
+                    var activity=await Shell(ResumedActivity);
                     if(activity.Contains("com.google.android.gms") && (activity.Contains("MinuteMaid") || activity.Contains("SignIn")))
                     { await Shell("input keyevent 4"); await Task.Delay(1200); }
                     lastActivityCheck=DateTime.UtcNow;
@@ -711,7 +730,7 @@ internal static partial class Program
                 }
                 if(step.Name is "movie-skip" or "tutorial-download" or "opening-skip" or "opening-confirm" && DateTime.UtcNow-lastMovieTap>TimeSpan.FromSeconds(3))
                 {
-                    var activity=await Shell("dumpsys activity activities | grep mResumedActivity || true");
+                    var activity=await Shell(ResumedActivity);
                     if(activity.Contains(Package)) await Shell("input tap 480 270");
                     lastMovieTap=DateTime.UtcNow;
                 }
@@ -866,16 +885,39 @@ internal static partial class Program
             await Task.Delay(120);
         }
     }
-    static string EventBytes(params (short type,short code,int value)[] events)
+    static byte[] EventData(params (short type,short code,int value)[] events)
     {
         using var memory=new MemoryStream(); using var writer=new BinaryWriter(memory);
         foreach(var e in events) { writer.Write(0L); writer.Write(0L); writer.Write(e.type); writer.Write(e.code); writer.Write(e.value); }
-        return string.Concat(memory.ToArray().Select(b=>"\\"+Convert.ToString(b,8).PadLeft(3,'0')));
+        return memory.ToArray();
+    }
+    static string EventBytes(params (short type,short code,int value)[] events)=>string.Concat(EventData(events).Select(b=>"\\"+Convert.ToString(b,8).PadLeft(3,'0')));
+
+    // Validated touch devices only; another device or layout is never guessed.
+    // LDPlayer (x86_64): /dev/input/event2 spans the 960x540 screen and printf writes whole events.
+    // BlueStacks Air (arm64): "BlueStacks Virtual Touch" spans 0-32767 on both axes and has no pressure axis. Android 13's
+    // printf splits its writes, which the input device rejects, so the events are prepared as files and written with cat.
+    record StoryTouch(string Device,int MaxX,int MaxY,bool Pressure,bool Files);
+    static async Task<StoryTouch> StoryTouchDevice()
+    {
+        var abi=(await Shell("getprop ro.product.cpu.abi")).Trim();
+        if(abi=="x86_64")
+        {
+            var info=await Shell("getevent -lp /dev/input/event2");
+            if(info.Contains("max 959") && info.Contains("max 539") && info.Contains("ABS_MT_TRACKING_ID")) return new("/dev/input/event2",959,539,true,false);
+        }
+        else if(abi=="arm64-v8a")
+        {
+            var device=(await Shell("getevent -lp")).Split("add device").FirstOrDefault(d=>Regex.IsMatch(d,"name:\\s*\"BlueStacks Virtual Touch\""));
+            var path=device==null?null:Regex.Match(device,@"^\s*\d+:\s*(/dev/input/event\d+)").Groups[1].Value;
+            if(path is { Length: >0 } && Regex.Matches(device!,@"ABS_MT_POSITION_[XY]\s*: value -?\d+, min 0, max 32767").Count==2) return new(path,32767,32767,false,true);
+        }
+        throw new Exception("Continuous touch device differs from the validated LDPlayer and BlueStacks layouts.");
     }
     static async Task AdvanceNarration(Step menu)
     {
         if(!RapidStorySteps.Contains(menu.Name)) throw new Exception("Rapid dialogue taps are restricted to named story steps.");
-        var activity=await Shell("dumpsys activity activities | grep mResumedActivity || true");
+        var activity=await Shell(ResumedActivity);
         if(!activity.Contains(Package)) return;
         var tapping=ContinuousStoryTaps(15000);
         try
@@ -894,13 +936,22 @@ internal static partial class Program
     static async Task ContinuousStoryTaps(int durationMs=120000)
     {
         if(!RapidStorySteps.Contains(ActiveStep??"")) throw new Exception("Rapid taps blocked outside a story step.");
-        // Validated LDPlayer x86_64 touch device; do not guess another device/layout.
-        var info=await Shell("getevent -lp /dev/input/event2");
-        if(!info.Contains("max 959") || !info.Contains("max 539") || !info.Contains("ABS_MT_TRACKING_ID") || (await Shell("getprop ro.product.cpu.abi")).Trim()!="x86_64")
-            throw new Exception("Continuous touch device differs from the validated 960x540 LDPlayer layout.");
-        var down=EventBytes((3,47,0),(3,57,1),(3,53,480),(3,54,270),(3,58,1),(1,330,1),(0,0,0));
-        var up=EventBytes((3,47,0),(3,57,-1),(3,58,0),(1,330,0),(0,0,0));
-        var script=$"rm -f /data/local/tmp/sekai-story.stop\nexec 3>/dev/input/event2 || exit 1\ni=0\nwhile [ $i -lt {durationMs/125} ] && [ ! -e /data/local/tmp/sekai-story.stop ]; do\nprintf '{down}' >&3\nsleep 0.025\nprintf '{up}' >&3\nsleep 0.100\ni=$((i+1))\ndone\nprintf '{up}' >&3\n";
+        var touch=await StoryTouchDevice();
+        // The screen center (480,270) in the device's units.
+        List<(short,short,int)> down=[(3,47,0),(3,57,1),(3,53,480*(touch.MaxX+1)/960),(3,54,270*(touch.MaxY+1)/540)];
+        List<(short,short,int)> up=[(3,47,0),(3,57,-1)];
+        if(touch.Pressure) { down.Add((3,58,1)); up.Add((3,58,0)); }
+        down.AddRange([(1,330,1),(0,0,0)]); up.AddRange([(1,330,0),(0,0,0)]);
+        string writeDown=$"printf '{EventBytes([..down])}'",writeUp=$"printf '{EventBytes([..up])}'";
+        if(touch.Files)
+        {
+            await File.WriteAllBytesAsync("artifacts/story-touch-down.bin",EventData([..down]));
+            await File.WriteAllBytesAsync("artifacts/story-touch-up.bin",EventData([..up]));
+            await Run(Adb,"-s",Serial,"push","artifacts/story-touch-down.bin","/data/local/tmp/sekai-touch-down.bin");
+            await Run(Adb,"-s",Serial,"push","artifacts/story-touch-up.bin","/data/local/tmp/sekai-touch-up.bin");
+            writeDown="cat /data/local/tmp/sekai-touch-down.bin"; writeUp="cat /data/local/tmp/sekai-touch-up.bin";
+        }
+        var script=$"rm -f /data/local/tmp/sekai-story.stop\nexec 3>{touch.Device} || exit 1\ni=0\nwhile [ $i -lt {durationMs/125} ] && [ ! -e /data/local/tmp/sekai-story.stop ]; do\n{writeDown} >&3\nsleep 0.025\n{writeUp} >&3\nsleep 0.100\ni=$((i+1))\ndone\n{writeUp} >&3\n";
         await File.WriteAllTextAsync("artifacts/story-taps.sh",script,new UTF8Encoding(false));
         await Run(Adb,"-s",Serial,"push","artifacts/story-taps.sh","/data/local/tmp/sekai-story-taps.sh");
         using var process=new Process { StartInfo=new ProcessStartInfo(Adb) { UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true } };

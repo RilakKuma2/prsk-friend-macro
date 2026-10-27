@@ -23,10 +23,9 @@ internal static partial class Program
     }
     static string LdRequired=>LdFolder??throw new InvalidOperationException(T("LD플레이어를 찾지 못했어요. 화면 위쪽에서 LD플레이어 폴더를 지정하세요.","LDPlayerが見つかりません。画面上部でLDPlayerのフォルダを指定してください。","LDPlayer was not found. Set its folder at the top of the page."));
     static string Ld=>Path.Combine(LdRequired,"ldconsole.exe");
-    static string Adb=>Path.Combine(LdRequired,"adb.exe");
 
     static bool IsLdFolder(string folder)=>File.Exists(Path.Combine(folder,"ldconsole.exe")) && File.Exists(Path.Combine(folder,"adb.exe"));
-    static string? Reg(string key,string name) { try { return Registry.GetValue(key,name,null) as string; } catch { return null; } }
+    static string? Reg(string key,string name) { if(!OperatingSystem.IsWindows()) return null; try { return Registry.GetValue(key,name,null) as string; } catch { return null; } }
     const string LdRegistry=@"HKEY_CURRENT_USER\Software\XuanZhi\LDPlayer9";
 
     static string? FindLdFolder()

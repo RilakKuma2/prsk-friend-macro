@@ -92,20 +92,20 @@ internal static partial class Program
     }
     static async Task EnsureRunning()
     {
-        var row=(await Run(Ld,"list2")).Split('\n').Select(x=>x.Trim().Split(',')).SingleOrDefault(x=>x.Length>=7 && x[0]==Instance.ToString());
+        var row=await VmRow(Instance);
         if(row==null || row[1]!=Target) throw new Exception("Instance identity differs; nothing launched.");
-        if(row[4]!="1") await Run(Ld,"launch","--index",Instance.ToString());
+        if(row[4]!="1") await VmLaunch(Instance);
         var deadline=DateTime.UtcNow.AddMinutes(3);
         var booted=false;
         while(DateTime.UtcNow<deadline && !StopRequested)
         {
-            try { if((await Shell("getprop sys.boot_completed")).Trim()=="1") { booted=true; break; } } catch { }
+            try { await ConnectVm(Instance); if((await Shell("getprop sys.boot_completed")).Trim()=="1") { booted=true; break; } } catch { }
             await Task.Delay(2000);
         }
         if(!booted) throw new Exception("Emulator boot timeout. Account data was not reset.");
         if(!await LiveResolutionOk(Serial)) await EnsureResolution();
         LastGuard=DateTime.MinValue; await Guard();
-        var current=await Shell("dumpsys activity activities | grep mResumedActivity || true");
+        var current=await Shell(ResumedActivity);
         if(!current.Contains(Package) && !current.Contains("com.google.android.gms"))
             await Shell($"monkey -p {Package} -c android.intent.category.LAUNCHER 1");
     }
@@ -119,7 +119,7 @@ internal static partial class Program
         while(DateTime.UtcNow<deadline)
         {
             if(StopRequested || File.Exists("artifacts/macro.stop")) throw new OperationCanceledException();
-            var activity=await Shell("dumpsys activity activities | grep mResumedActivity || true");
+            var activity=await Shell(ResumedActivity);
             if(activity.Contains("com.google.android.gms") && (activity.Contains("MinuteMaid") || activity.Contains("SignIn")))
             { await Shell("input keyevent 4"); await Task.Delay(1500); continue; }
             await Snapshot("artifacts/current.png",true);

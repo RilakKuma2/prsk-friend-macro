@@ -1,17 +1,35 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>WinExe</OutputType>
-    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
-    <UseWindowsForms>true</UseWindowsForms>
+    <!-- Windows builds the LDPlayer app (WinForms + WebView2). macOS builds the BlueStacks Air panel, which SekaiMacro.app (mac/App.swift) shows in its window.
+         -p:SekaiPlatform=windows picks the Windows app elsewhere (with -p:EnableWindowsTargeting=true); restore keeps this property. -->
+    <SekaiPlatform Condition="'$(SekaiPlatform)'=='' And '$(OS)'=='Windows_NT'">windows</SekaiPlatform>
+    <TargetFramework Condition="'$(SekaiPlatform)'=='windows'">net10.0-windows10.0.19041.0</TargetFramework>
+    <TargetFramework Condition="'$(SekaiPlatform)'!='windows'">net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <!-- The release tag is v$(Version); the app compares it with the latest GitHub release on start. -->
-    <Version>1.0.0</Version>
+    <Version>1.1.0</Version>
+  </PropertyGroup>
+  <PropertyGroup Condition="$(TargetFramework.Contains('-windows'))">
+    <OutputType>WinExe</OutputType>
+    <UseWindowsForms>true</UseWindowsForms>
+    <!-- Also the window icon: the GUI takes the icon of its own exe. The macOS app uses mac/AppIcon.icns. -->
+    <ApplicationIcon>SekaiMacro.ico</ApplicationIcon>
+  </PropertyGroup>
+  <PropertyGroup Condition="!$(TargetFramework.Contains('-windows'))">
+    <OutputType>Exe</OutputType>
   </PropertyGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
-    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" />
     <EmbeddedResource Include="web\index.html" LogicalName="web.index.html" />
     <EmbeddedResource Include="web\units\*.webp" LogicalName="web.units.%(Filename)%(Extension)" />
+  </ItemGroup>
+  <ItemGroup Condition="$(TargetFramework.Contains('-windows'))">
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" />
+    <Compile Remove="Mac*.cs" />
+  </ItemGroup>
+  <ItemGroup Condition="!$(TargetFramework.Contains('-windows'))">
+    <!-- System.Drawing's Bitmap is Windows-only; MacImaging.cs provides the same calls with its own PNG reader. -->
+    <Compile Remove="Gui.cs;Updater.cs" />
   </ItemGroup>
 </Project>

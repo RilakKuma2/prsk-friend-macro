@@ -97,7 +97,7 @@ internal static partial class Program
         while(DateTime.UtcNow<deadline)
         {
             if(StopRequested || File.Exists("artifacts/macro.stop")) throw new OperationCanceledException();
-            var activity=await Shell("dumpsys activity activities | grep mResumedActivity || true");
+            var activity=await Shell(ResumedActivity);
             if(activity.Contains("com.google.android.gms")) { await Shell("input keyevent 4"); await Task.Delay(1000); continue; }
             await Snapshot("artifacts/current.png",true);
             using var screen=LoadCurrentScreen();

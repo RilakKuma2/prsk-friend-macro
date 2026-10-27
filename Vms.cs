@@ -26,7 +26,7 @@ internal static partial class Program
     static object LdInfo()
     {
         var version=LdVersion();
-        return new { Folder=LdFolder,Version=version,VersionUrl=version==null?null:LdVersionUrl(version),
+        return new { Kind="ldplayer",Folder=LdFolder,Version=version,VersionUrl=version==null?null:LdVersionUrl(version),
             Validated=ValidatedLdVersion,ValidatedUrl=LdVersionUrl(ValidatedLdVersion),LatestUrl=LdLatestUrl,Site=LdSiteUrl,GamePage=GamePageUrl };
     }
 
@@ -36,7 +36,7 @@ internal static partial class Program
     static async Task<Dictionary<int,string[]>> LdRows()
     {
         var rows=new Dictionary<int,string[]>();
-        foreach(var row in (await Run(Ld,"list2")).Split('\n').Select(x=>x.Trim().Split(',')).Where(x=>x.Length>=7))
+        foreach(var row in (await VmList()).Split('\n').Select(x=>x.Trim().Split(',')).Where(x=>x.Length>=7))
             if(int.TryParse(row[0],out var index)) rows[index]=row;
         return rows;
     }
@@ -55,14 +55,21 @@ internal static partial class Program
         ArchiveInstanceFiles(created[0]);
         return created[0];
     }
+    // BlueStacks makes, copies and removes instances only in its multi-instance manager.
+    static void RequireVmManagement()
+    {
+        if(IsBlueStacks) throw new InvalidOperationException(T("블루스택 VM은 멀티 인스턴스 매니저에서 만들고 복제하고 지워요. 만든 VM을 골라서 게임 설치·세팅을 하세요.","BlueStacksのVMはマルチインスタンスマネージャーで作成・複製・削除します。作ったVMを選んでゲームのインストールと準備をしてください。","BlueStacks VMs are created, copied and removed in its multi-instance manager. Pick a VM made there to install and set up the game."));
+    }
     static async Task<int> CreateVm(string name)
     {
+        RequireVmManagement();
         var before=(await LdRows()).Keys.ToHashSet();
         await RunLdManage("add","--name",name);
         return await NewVmIndex(before,name);
     }
     static async Task<int> CopyVm(int from,string name)
     {
+        RequireVmManagement();
         await QuitVm(from);
         var before=(await LdRows()).Keys.ToHashSet();
         await RunLdManage("copy","--name",name,"--from",from.ToString());
@@ -71,7 +78,7 @@ internal static partial class Program
     static async Task QuitVm(int instance)
     {
         if(!(await LdRows()).TryGetValue(instance,out var row) || row[4]!="1") return;
-        await Run(Ld,"quit","--index",instance.ToString());
+        await VmQuitRequest(instance);
         for(var i=0;i<60;i++)
         {
             await Task.Delay(1000);
@@ -91,7 +98,7 @@ internal static partial class Program
     // Removes the LDPlayer VM. Its macro files are kept in local/removed, not deleted.
     static async Task<string> RemoveVm(int instance)
     {
-        RequireInstance(instance); RequireUnlocked(instance);
+        RequireInstance(instance); RequireUnlocked(instance); RequireVmManagement();
         if(IsWorkerRunning(instance) || PendingWork.ContainsKey(instance) || ProvisionUses(instance))
             throw new InvalidOperationException(T($"{instance}번은 작업 중이라 지울 수 없어요.",$"{instance}番は作業中のため削除できません。",$"#{instance} is busy and cannot be removed."));
         var name=AllowedInstances[instance];
@@ -106,8 +113,8 @@ internal static partial class Program
     // ---- Disk space: a copy needs as much room as its source VM's folder, plus a margin.
 
     const long DiskMargin=2L<<30;
-    static string VmsDir=>Path.GetDirectoryName(Path.GetDirectoryName(LdConfig(0))!)!;
-    static string VmDir(int instance)=>Path.Combine(VmsDir,$"leidian{instance}");
+    static string VmsDir=>IsBlueStacks?Path.Combine(BlueStacksData,"Engine"):Path.GetDirectoryName(Path.GetDirectoryName(LdConfig(0))!)!;
+    static string VmDir(int instance)=>IsBlueStacks?Path.Combine(VmsDir,BlueStacksInstanceOf(instance).Id):Path.Combine(VmsDir,$"leidian{instance}");
     static long FolderBytes(string dir)
     {
         try { return Directory.Exists(dir)?new DirectoryInfo(dir).EnumerateFiles("*",SearchOption.AllDirectories).Sum(f=>f.Length):0; }
@@ -462,8 +469,9 @@ internal static partial class Program
     static string StartProvision(ProvisionRequest request)
     {
         if(ProvisionAlive(ReadProvision())) throw new InvalidOperationException(T("이미 VM 세팅 작업이 진행 중이에요.","すでにVMの準備作業が進行中です。","A VM setup job is already running."));
-        _=LdRequired;
+        if(IsBlueStacks) _=BlueStacksRequired; else _=LdRequired;
         if(request.Update) goto start;
+        if(request.Base==null || request.Count>1) RequireVmManagement();
         if(request.Count is <1 or >30) throw new ArgumentException(T("VM 수는 1~30대예요.","VMの数は1〜30台です。","The VM count must be 1 to 30."));
         if(request.Install is not ("auto" or "apkpure" or "copy" or "none")) throw new ArgumentException(T("게임 설치 방법이 올바르지 않아요.","ゲームのインストール方法が正しくありません。","Invalid game install source."));
         if(request.Base is { } b)
@@ -578,7 +586,7 @@ internal static partial class Program
                     await StartWorker(n,new StartRequest("run",null,plan,unit,null,true,request.Loops,invite,request.InviteCode,request.InviteMode,request.InviteLimit));
                 }
             }
-            if(request.Start && instances.Count>1) try { await Run(Ld,"sortWnd"); } catch { }
+            if(request.Start && instances.Count>1) try { await VmArrange(); } catch { }
             step="done"; Save("done");
             File.AppendAllText(log,$"[{DateTime.Now:HH:mm:ss}] done: {string.Join(',',instances)}\n");
         }
