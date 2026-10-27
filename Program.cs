@@ -92,7 +92,7 @@ internal static partial class Program
             if(args[0]=="check-story-reward") { VerifyStoryReward(args[1]); return 0; }
             if(args[0]=="check-story-receipt") { VerifyStoryReceipt(args[1]); return 0; }
             if(args[0]=="check-story-page") { using var shot=new Bitmap(args[1]); Console.WriteLine($"Episodes={string.Join(',',await ReadVisibleEpisodes(shot))}, SKIP={FindBottomSkip(shot)}, unread={HasUnreadStoryBadge(shot)}"); return 0; }
-            if(args[0]=="check-music-shop") { using var shot=new Bitmap(args[1]); Console.WriteLine(FindMusicShop(shot,LoadSteps().Single(s=>s.Name=="music-shop-open"))); return 0; }
+            if(args[0]=="check-music-shop") { using var shot=new Bitmap(args[1]); Console.WriteLine(FindMusicShop(shot,LoadSteps().Single(s=>s.Name=="music-shop-open"))+", AllSongsTab="+AllSongsTab(shot)); return 0; }
             if(args[0]=="check-plan")
             {
                 ValidateFlow();
@@ -664,6 +664,13 @@ internal static partial class Program
                     if(step.Name=="event-story-first" && !IsEventStoryList(screen))
                     { await OpenEventStories(); lastRetry=DateTime.UtcNow; continue; }
                     if(step.Name=="solo-live-open" && Matches(screen,steps.Single(s=>s.Name=="live-song-search-focus"))) skipOptional=true;
+                    // The song shop may open on one unit's tab, which hides the searched song: search under すべて.
+                    if(step.Name is "song-search-focus" or "song-open" && DateTime.UtcNow-lastRetry>TimeSpan.FromSeconds(2) &&
+                       Matches(screen,steps.Single(s=>s.Name=="song-search-focus")) && !AllSongsTab(screen))
+                    {
+                        Console.WriteLine("Song shop is showing one unit's tab; selecting すべて.");
+                        await Shell("input tap 123 84"); lastRetry=DateTime.UtcNow; await Task.Delay(700); continue;
+                    }
                     if(step.Name=="members-open" && difference>=12 && DateTime.UtcNow-lastRetry>TimeSpan.FromSeconds(4) && Matches(screen,steps.Single(s=>s.Name=="memories-tab")))
                     { await Shell("input tap 32 32"); lastRetry=DateTime.UtcNow; continue; }
                     if(step.Name is "base-data-only" or "base-data-download")
@@ -1216,6 +1223,13 @@ internal static partial class Program
         for(var y=462;y<538;y+=4) for(var x=0;x<860;x+=8) { total++; var p=screen.GetPixel(x,y); if(p.R>245 && p.G>245 && p.B>245) white++; }
         for(var y=486;y<516;y++) for(var x=870;x<950;x++) { var p=screen.GetPixel(x,y); if(p.R+p.G+p.B<300) ink++; }
         return white>=total*9/10 && ink>=20;
+    }
+    // The selected tab of the song shop is a light pill; the others are the darker bar.
+    static bool AllSongsTab(Bitmap screen)
+    {
+        var light=0;
+        for(var x=88;x<168;x+=4) { var p=screen.GetPixel(x,98); if(p.R>210 && p.G>210 && p.B>220) light++; }
+        return light>=18;
     }
     static double Difference(Bitmap screen,Bitmap expected,Step step)
     {
