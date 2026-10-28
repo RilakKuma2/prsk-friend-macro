@@ -1225,8 +1225,9 @@ internal static partial class Program
         }
         throw new Exception("Gacha skip timed out. The draw is NOT retried.");
     }
-    // Unity's text input bar along the bottom edge. Its button is labeled in the system language: "확인" on the Korean
-    // LDPlayer (the template), "OK" on BlueStacks; the white strip with lettering at its right end is the same.
+    // Unity's text input bar along the bottom edge. Its button shows Android's "ok" string in the system language:
+    // "확인" in Korean (the template, from LDPlayer), "OK" in English and Japanese, "确定"/"確定" in Chinese.
+    // Any label is lettering at the right end of the same white strip.
     static bool IsTextInputBar(Bitmap screen)
     {
         int white=0,total=0,ink=0;
