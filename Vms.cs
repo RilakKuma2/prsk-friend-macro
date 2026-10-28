@@ -2,7 +2,7 @@ using System.Diagnostics;
 using System.IO.Compression;
 using System.Text.Json;
 
-// VM management from the GUI: LDPlayer download links, creating/copying/removing VMs, installing the game,
+// VM management from the GUI: emulator download links, creating/copying/removing VMs, installing the game,
 // and a provisioning job (one VM gets the game and the onboarding stage, is copied to the requested count,
 // then macros start on the copies). The job is its own process (`provision`) so restarting the GUI does not
 // cut it; it reports in local/provision/status.json.
@@ -33,7 +33,7 @@ internal static partial class Program
     // ---- VMs
 
     static void ForgetVmLists() { lock(InstancesLock) InstanceCache=(DateTime.MinValue,[]); VmListCache=(DateTime.MinValue,[]); }
-    static async Task<Dictionary<int,string[]>> LdRows()
+    static async Task<Dictionary<int,string[]>> AllVmRows()
     {
         var rows=new Dictionary<int,string[]>();
         foreach(var row in (await VmList()).Split('\n').Select(x=>x.Trim().Split(',')).Where(x=>x.Length>=7))
@@ -49,42 +49,41 @@ internal static partial class Program
     static async Task<int> NewVmIndex(HashSet<int> before,string name)
     {
         ForgetVmLists();
-        var created=(await LdRows()).Where(r=>!before.Contains(r.Key) && r.Value[1]==name).Select(r=>r.Key).ToList();
-        if(created.Count!=1) throw new Exception(T("새 VM을 찾지 못했어요. LD플레이어 멀티 매니저를 확인하세요.","新しいVMが見つかりません。LDPlayerのマルチプレイヤーを確認してください。","The new VM was not found. Check LDPlayer's multi-instance manager."));
-        // LDPlayer reuses freed indexes; files left from an earlier VM at this index are moved aside.
+        var created=(await AllVmRows()).Where(r=>!before.Contains(r.Key) && r.Value[1]==name).Select(r=>r.Key).ToList();
+        if(created.Count!=1) throw new Exception(T("새 VM을 찾지 못했어요. 에뮬레이터의 멀티 매니저를 확인하세요.","新しいVMが見つかりません。エミュレーターのマルチ管理画面を確認してください。","The new VM was not found. Check the emulator's multi-instance manager."));
+        // Emulators reuse freed indexes; files left from an earlier VM at this index are moved aside.
         ArchiveInstanceFiles(created[0]);
         return created[0];
     }
     // BlueStacks makes, copies and removes instances only in its multi-instance manager.
-    static void RequireVmManagement()
+    static void RequireVmManagement(string key)
     {
-        if(IsBlueStacks) throw new InvalidOperationException(T("블루스택 VM은 멀티 인스턴스 매니저에서 만들고 복제하고 지워요. 만든 VM을 골라서 게임 설치·세팅을 하세요.","BlueStacksのVMはマルチインスタンスマネージャーで作成・複製・削除します。作ったVMを選んでゲームのインストールと準備をしてください。","BlueStacks VMs are created, copied and removed in its multi-instance manager. Pick a VM made there to install and set up the game."));
+        if(!CanManageVms(key)) throw new InvalidOperationException(BlueStacksManagerOnly);
+        RequireFolder(key);
     }
-    static async Task<int> CreateVm(string name)
+    static async Task<int> CreateVm(string key,string name)
     {
-        RequireVmManagement();
-        var before=(await LdRows()).Keys.ToHashSet();
-        await RunLdManage("add","--name",name);
-        return await NewVmIndex(before,name);
+        RequireVmManagement(key);
+        return await AddVm(key,name);
     }
     static async Task<int> CopyVm(int from,string name)
     {
-        RequireVmManagement();
+        RequireVmManagement(KindOf(from));
         await QuitVm(from);
-        var before=(await LdRows()).Keys.ToHashSet();
-        await RunLdManage("copy","--name",name,"--from",from.ToString());
+        var before=(await AllVmRows()).Keys.ToHashSet();
+        await CopyVmFiles(from,name);
         return await NewVmIndex(before,name);
     }
     static async Task QuitVm(int instance)
     {
-        if(!(await LdRows()).TryGetValue(instance,out var row) || row[4]!="1") return;
+        if(!(await AllVmRows()).TryGetValue(instance,out var row) || row[4]!="1") return;
         await VmQuitRequest(instance);
         for(var i=0;i<60;i++)
         {
             await Task.Delay(1000);
-            if(!(await LdRows()).TryGetValue(instance,out row) || row[4]!="1") { ForgetVmLists(); await Task.Delay(2000); return; }
+            if(!(await AllVmRows()).TryGetValue(instance,out row) || row[4]!="1") { ForgetVmLists(); await Task.Delay(2000); return; }
         }
-        throw new TimeoutException(T($"{instance}번 VM이 꺼지지 않아요.",$"{instance}番のVMが停止しません。",$"#{instance} VM does not shut down."));
+        throw new TimeoutException(T($"{VmNo(instance)}번 VM이 꺼지지 않아요.",$"{VmNo(instance)}番のVMが停止しません。",$"{VmHash(instance)} VM does not shut down."));
     }
     static void ArchiveInstanceFiles(int instance)
     {
@@ -95,32 +94,38 @@ internal static partial class Program
         Directory.Move(dir,target);
     }
 
-    // Removes the LDPlayer VM. Its macro files are kept in local/removed, not deleted.
+    // Removes the emulator's VM. Its macro files are kept in local/removed, not deleted.
     static async Task<string> RemoveVm(int instance)
     {
-        RequireInstance(instance); RequireUnlocked(instance); RequireVmManagement();
+        RequireInstance(instance); RequireUnlocked(instance); RequireVmManagement(KindOf(instance));
         if(IsWorkerRunning(instance) || PendingWork.ContainsKey(instance) || ProvisionUses(instance))
-            throw new InvalidOperationException(T($"{instance}번은 작업 중이라 지울 수 없어요.",$"{instance}番は作業中のため削除できません。",$"#{instance} is busy and cannot be removed."));
+            throw new InvalidOperationException(T($"{VmNo(instance)}번은 작업 중이라 지울 수 없어요.",$"{VmNo(instance)}番は作業中のため削除できません。",$"{VmHash(instance)} is busy and cannot be removed."));
         var name=AllowedInstances[instance];
         await QuitVm(instance);
-        await RunLdManage("remove","--index",instance.ToString());
+        await DeleteVm(instance);
         ForgetVmLists();
-        if((await LdRows()).ContainsKey(instance)) throw new Exception(T($"{instance}번 VM이 지워지지 않았어요.",$"{instance}番のVMが削除されませんでした。",$"#{instance} VM was not removed."));
+        if((await AllVmRows()).ContainsKey(instance)) throw new Exception(T($"{VmNo(instance)}번 VM이 지워지지 않았어요.",$"{VmNo(instance)}番のVMが削除されませんでした。",$"{VmHash(instance)} VM was not removed."));
         ArchiveInstanceFiles(instance);
-        return T($"{instance}번 VM({name})을 지웠어요. 매크로 기록은 local/removed에 남겨뒀어요.",$"{instance}番のVM({name})を削除しました。マクロの記録はlocal/removedに残しています。",$"Removed #{instance} VM ({name}). Its macro records are kept in local/removed.");
+        return T($"{VmNo(instance)}번 VM({name})을 지웠어요. 매크로 기록은 local/removed에 남겨뒀어요.",$"{VmNo(instance)}番のVM({name})を削除しました。マクロの記録はlocal/removedに残しています。",$"Removed {VmHash(instance)} VM ({name}). Its macro records are kept in local/removed.");
     }
 
     // ---- Disk space: a copy needs as much room as its source VM's folder, plus a margin.
 
     const long DiskMargin=2L<<30;
-    static string VmsDir=>IsBlueStacks?Path.Combine(BlueStacksData,"Engine"):Path.GetDirectoryName(Path.GetDirectoryName(LdConfig(0))!)!;
-    static string VmDir(int instance)=>IsBlueStacks?Path.Combine(VmsDir,BlueStacksInstanceOf(instance).Id):Path.Combine(VmsDir,$"leidian{instance}");
-    static long FolderBytes(string dir)
+    // The drive an emulator keeps its VMs on: an existing VM's folder, else the emulator's install folder.
+    static string VmsDrive(string key)
     {
-        try { return Directory.Exists(dir)?new DirectoryInfo(dir).EnumerateFiles("*",SearchOption.AllDirectories).Sum(f=>f.Length):0; }
+        string? dir=null;
+        foreach(var n in AllowedInstances.Keys.Where(n=>KindOf(n)==key)) try { if(VmDir(n) is { } d && Directory.Exists(d)) { dir=d; break; } } catch { }
+        return Path.GetPathRoot(Path.GetFullPath(dir??RequireFolder(key)))!;
+    }
+    static long FolderBytes(string? dir)
+    {
+        try { return dir!=null && Directory.Exists(dir)?new DirectoryInfo(dir).EnumerateFiles("*",SearchOption.AllDirectories).Sum(f=>f.Length):0; }
         catch { return 0; }
     }
-    static long FreeBytes()=>new DriveInfo(Path.GetPathRoot(Path.GetFullPath(VmsDir))!).AvailableFreeSpace;
+    static long VmBytes(int instance) { try { return FolderBytes(VmDir(instance)); } catch { return 0; } }
+    static long FreeBytes(string key)=>new DriveInfo(VmsDrive(key)).AvailableFreeSpace;
     // A new VM with the game and its data ends up about as large as the largest existing one (16 GB if none).
     // A new VM needs about what Android uses inside the fullest VM (its shared storage holds the game data),
     // measured while VMs run and kept in local/vm-usage.json for VMs that are off; 9 GB until one was measured.
@@ -135,28 +140,28 @@ internal static partial class Program
     {
         if(UsageMeasured.TryGetValue(instance,out var at) && DateTime.UtcNow-at<TimeSpan.FromMinutes(5)) return;
         UsageMeasured[instance]=DateTime.UtcNow;
-        var line=(await Run(Adb,"-s",SerialOf(instance),"shell","df -k /data/media | tail -1")).Trim().Split(' ',StringSplitOptions.RemoveEmptyEntries);
+        var line=(await Run(AdbOf(instance),"-s",SerialOf(instance),"shell","df -k /data/media | tail -1")).Trim().Split(' ',StringSplitOptions.RemoveEmptyEntries);
         if(line.Length<3 || !long.TryParse(line[2],out var used)) return;
         var usage=ReadUsage(); usage[instance.ToString()]=used*1024;
         WriteJsonAtomic(UsageFile,usage);
     }
-    static long NewVmBytes()
+    static long NewVmBytes(string key)
     {
         var usage=ReadUsage();
-        var used=AllowedInstances.Keys.Select(n=>usage.GetValueOrDefault(n.ToString())).DefaultIfEmpty(0).Max();
+        var used=AllowedInstances.Keys.Where(n=>KindOf(n)==key).Select(n=>usage.GetValueOrDefault(n.ToString())).DefaultIfEmpty(0).Max();
         return used>0?used:9L<<30;
     }
     static string Gb(long bytes)=>$"{bytes/(double)(1L<<30):0.#}GB";
-    static void RequireDisk(long each,int count)
+    static void RequireDisk(string key,long each,int count)
     {
         if(count<=0) return;
-        var need=each*count+DiskMargin; var free=FreeBytes();
+        var need=each*count+DiskMargin; var free=FreeBytes(key);
         if(free<need) throw new InvalidOperationException(T($"디스크 공간이 부족해요. {count}대에 약 {Gb(need)} 필요한데 {Gb(free)} 남았어요.",$"ディスク容量が足りません。{count}台に約{Gb(need)}必要ですが、残りは{Gb(free)}です。",$"Not enough disk space: {count} VM(s) need about {Gb(need)}, {Gb(free)} is free."));
     }
-    static object DiskInfo()
+    static object DiskInfo(string key)
     {
         // A copy duplicates the source VM's disk files, so copies are sized by its folder.
-        try { return new { Free=FreeBytes(),Drive=Path.GetPathRoot(Path.GetFullPath(VmsDir)),NewVm=NewVmBytes(),Vms=AllowedInstances.Keys.ToDictionary(n=>n.ToString(),n=>FolderBytes(VmDir(n))) }; }
+        try { return new { Free=FreeBytes(key),Drive=VmsDrive(key),NewVm=NewVmBytes(key),Vms=AllowedInstances.Keys.Where(n=>KindOf(n)==key).ToDictionary(n=>n.ToString(),VmBytes) }; }
         catch { return new { Free=0L,Drive=(string?)null,NewVm=0L,Vms=new Dictionary<string,long>() }; }
     }
 
@@ -164,7 +169,7 @@ internal static partial class Program
 
     static async Task<bool> GameInstalled(int instance)
     {
-        try { return (await Run(Adb,"-s",SerialOf(instance),"shell",$"pm path {Package}")).Contains("package:"); }
+        try { return (await Run(AdbOf(instance),"-s",SerialOf(instance),"shell",$"pm path {Package}")).Contains("package:"); }
         catch { return false; }
     }
     static string ApkCache=>Path.Combine(Workspace,"local","apk");
@@ -185,10 +190,10 @@ internal static partial class Program
         return copy;
     }
 
-    // Split APKs from a running VM that already has the game; no download needed.
+    // Split APKs from a running VM of the same emulator that already has the game; no download needed.
     static async Task<int?> GameSourceVm(int target)
     {
-        foreach(var n in AllowedInstances.Keys.Where(n=>n!=target))
+        foreach(var n in AllowedInstances.Keys.Where(n=>n!=target && KindOf(n)==KindOf(target)))
             if(await IsVmRunning(n) && await GameInstalled(n)) return n;
         return null;
     }
@@ -196,17 +201,17 @@ internal static partial class Program
     static async Task<List<string>> PullGameFromVm(int target,int? source,Action<string> report)
     {
         if(source==null) throw new InvalidOperationException(T("게임이 설치된 켜진 VM이 없어요.","ゲームが入った起動中のVMがありません。","No running VM has the game."));
-        report(T($"{source}번 VM에서 게임 파일 복사 중",$"{source}番のVMからゲームファイルをコピー中",$"Copying game files from #{source}"));
+        report(T($"{VmNo(source.Value)}번 VM에서 게임 파일 복사 중",$"{VmNo(source.Value)}番のVMからゲームファイルをコピー中",$"Copying game files from {VmHash(source.Value)}"));
         var dir=KeptSplits;
         if(Directory.Exists(dir)) Directory.Delete(dir,true);
         Directory.CreateDirectory(dir);
         var files=new List<string>();
-        foreach(var line in (await Run(Adb,"-s",SerialOf(source.Value),"shell",$"pm path {Package}")).Split('\n').Select(l=>l.Trim()).Where(l=>l.StartsWith("package:")))
+        foreach(var line in (await Run(AdbOf(source.Value),"-s",SerialOf(source.Value),"shell",$"pm path {Package}")).Split('\n').Select(l=>l.Trim()).Where(l=>l.StartsWith("package:")))
         {
             var remote=line["package:".Length..];
             var local=Path.Combine(dir,Path.GetFileName(remote));
             var staged=Path.Combine(AdbStage(),Path.GetFileName(remote));
-            await RunLong(TimeSpan.FromMinutes(10),Adb,"-s",SerialOf(source.Value),"pull",remote,staged);
+            await RunLong(TimeSpan.FromMinutes(10),AdbOf(source.Value),"-s",SerialOf(source.Value),"pull",remote,staged);
             File.Move(staged,local,true);
             files.Add(local);
         }
@@ -302,7 +307,7 @@ internal static partial class Program
     static string? GameSignature(string output)=>System.Text.RegularExpressions.Regex.Match(output,@"signatures:\[([0-9a-f, ]+)\]").Groups[1].Value is { Length: >0 } v?v:null;
     static async Task<string?> SignatureOf(int instance)
     {
-        try { return GameSignature(await Run(Adb,"-s",SerialOf(instance),"shell",$"dumpsys package {Package} | grep -m1 signatures")); }
+        try { return GameSignature(await Run(AdbOf(instance),"-s",SerialOf(instance),"shell",$"dumpsys package {Package} | grep -m1 signatures")); }
         catch { return null; }
     }
 
@@ -321,7 +326,7 @@ internal static partial class Program
             return ([apk],[]);
         }
         using var doc=JsonDocument.Parse(manifest.Open());
-        var abis=(await Run(Adb,"-s",SerialOf(target),"shell","getprop ro.product.cpu.abilist")).Trim().Split(',').Select(a=>a.Replace('-','_')).ToList();
+        var abis=(await Run(AdbOf(target),"-s",SerialOf(target),"shell","getprop ro.product.cpu.abilist")).Trim().Split(',').Select(a=>a.Replace('-','_')).ToList();
         var splits=doc.RootElement.TryGetProperty("split_apks",out var list)?list.EnumerateArray().Select(e=>(File:e.GetProperty("file").GetString()!,Id:e.GetProperty("id").GetString()??"")).ToList():[];
         // Keep the one ABI split this VM prefers; the other ABI splits would be rejected or wasted.
         string[] known=["x86_64","x86","arm64_v8a","armeabi_v7a","armeabi"];
@@ -358,10 +363,10 @@ internal static partial class Program
         foreach(var (file,path) in obbs)
         {
             report(T("추가 데이터 넣는 중","追加データを転送中","Pushing expansion files"));
-            await RunLong(TimeSpan.FromMinutes(30),Adb,"-s",SerialOf(instance),"push",Staged(file),"/sdcard/"+path);
+            await RunLong(TimeSpan.FromMinutes(30),AdbOf(instance),"-s",SerialOf(instance),"push",Staged(file),"/sdcard/"+path);
         }
         report(T("게임 설치 중","ゲームをインストール中","Installing the game"));
-        var output=await RunLong(TimeSpan.FromMinutes(15),Adb,["-s",SerialOf(instance),apks.Count>1?"install-multiple":"install","-r","-g",..apks.Select(Staged)]);
+        var output=await RunLong(TimeSpan.FromMinutes(15),AdbOf(instance),["-s",SerialOf(instance),apks.Count>1?"install-multiple":"install","-r","-g",..apks.Select(Staged)]);
         try { Directory.Delete(AdbStage(),true); } catch { }
         if(!output.Contains("Success")) throw new Exception(T("게임 설치 실패: ","ゲームのインストールに失敗: ","Game install failed: ")+output.Trim());
         // A downloaded package must be signed like the official game (another VM's copy, or this VM's before an update).
@@ -371,7 +376,7 @@ internal static partial class Program
         var installed=await SignatureOf(instance);
         if(reference!=null && installed!=reference)
         {
-            await Run(Adb,"-s",SerialOf(instance),"uninstall",Package);
+            await Run(AdbOf(instance),"-s",SerialOf(instance),"uninstall",Package);
             throw new Exception(T("설치한 게임의 서명이 공식 앱과 달라서 지웠어요.","インストールしたゲームの署名が公式アプリと違うため削除しました。","The installed game's signature differs from the official app, so it was removed."));
         }
         report(reference==null?T("게임 설치 완료 (비교할 공식 앱이 없어 서명 확인은 건너뜀)","インストール完了（比較する公式アプリがないため署名確認は省略）","Game installed (no official copy to compare signatures with)"):T("게임 설치 완료 · 공식 앱과 서명 일치","インストール完了 · 公式アプリと署名一致","Game installed · signature matches the official app"));
@@ -383,10 +388,10 @@ internal static partial class Program
         try
         {
             // pm path exits with 1 when the package is missing.
-            if((await Run(Adb,"-s",SerialOf(instance),"shell",$"pm path {QooAppPackage} || true")).Contains("package:")) return;
+            if((await Run(AdbOf(instance),"-s",SerialOf(instance),"shell",$"pm path {QooAppPackage} || true")).Contains("package:")) return;
             var apk=await FetchLatest("qooapp",report);
             report(T("QooApp 설치 중","QooAppをインストール中","Installing QooApp"));
-            var output=await RunLong(TimeSpan.FromMinutes(5),Adb,"-s",SerialOf(instance),"install","-r",Staged(apk));
+            var output=await RunLong(TimeSpan.FromMinutes(5),AdbOf(instance),"-s",SerialOf(instance),"install","-r",Staged(apk));
             try { Directory.Delete(AdbStage(),true); } catch { }
             if(!output.Contains("Success")) report(T("QooApp 설치 실패: ","QooAppのインストールに失敗: ","QooApp install failed: ")+output.Trim());
         }
@@ -396,7 +401,7 @@ internal static partial class Program
 
     static async Task<Version?> InstalledGameVersion(int instance)
     {
-        try { return Version.TryParse(System.Text.RegularExpressions.Regex.Match(await Run(Adb,"-s",SerialOf(instance),"shell",$"dumpsys package {Package} | grep -m1 versionName"),@"versionName=([0-9.]+)").Groups[1].Value,out var v)?v:null; }
+        try { return Version.TryParse(System.Text.RegularExpressions.Regex.Match(await Run(AdbOf(instance),"-s",SerialOf(instance),"shell",$"dumpsys package {Package} | grep -m1 versionName"),@"versionName=([0-9.]+)").Groups[1].Value,out var v)?v:null; }
         catch { return null; }
     }
 
@@ -418,7 +423,7 @@ internal static partial class Program
                 var current=await InstalledGameVersion(n);
                 if(latest!=null && current!=null && current>=latest) { report(n,T($"이미 최신 ({current})",$"最新です ({current})",$"Already latest ({current})")); continue; }
                 var reference=await SignatureOf(n);
-                await Run(Adb,"-s",SerialOf(n),"shell",$"am force-stop {Package}");
+                await Run(AdbOf(n),"-s",SerialOf(n),"shell",$"am force-stop {Package}");
                 var (apks,obbs)=await UnpackGame(xapk,n,d=>report(n,d));
                 await InstallGameFiles(n,apks,obbs,reference,d=>report(n,d));
                 updated.Add(n);
@@ -430,8 +435,11 @@ internal static partial class Program
 
     // ---- Provisioning job
 
+    // Emulator names where a new VM is made; a copy or setup of an existing VM uses that VM's emulator.
     record ProvisionRequest(string? Name,int Count,int? Base,string Install,bool Setup,string? Unit,bool Start,bool StartBase,int Loops,
-        string? InviteCode,string? InviteMode,int? InviteLimit,bool Update=false);
+        string? InviteCode,string? InviteMode,int? InviteLimit,bool Update=false,string? Emulator=null);
+    static string ProvisionEmulator(ProvisionRequest request)=>request.Base is { } existing?KindOf(existing)
+        :request.Emulator??InstalledEmulators.FirstOrDefault()?.Key??"ldplayer";
     record ProvisionStatus(string State,string Step,string? Detail,int[] Instances,int? Current,string? Error,int Pid,DateTimeOffset Started,DateTimeOffset Updated,ProvisionRequest Request);
 
     static string ProvisionDir=>Path.Combine(Workspace,"local","provision");
@@ -469,15 +477,16 @@ internal static partial class Program
     static string StartProvision(ProvisionRequest request)
     {
         if(ProvisionAlive(ReadProvision())) throw new InvalidOperationException(T("이미 VM 세팅 작업이 진행 중이에요.","すでにVMの準備作業が進行中です。","A VM setup job is already running."));
-        if(IsBlueStacks) _=BlueStacksRequired; else _=LdRequired;
         if(request.Update) goto start;
-        if(request.Base==null || request.Count>1) RequireVmManagement();
+        var key=ProvisionEmulator(request);
+        RequireFolder(key);
+        if(request.Base==null || request.Count>1) RequireVmManagement(key);
         if(request.Count is <1 or >30) throw new ArgumentException(T("VM 수는 1~30대예요.","VMの数は1〜30台です。","The VM count must be 1 to 30."));
         if(request.Install is not ("auto" or "apkpure" or "copy" or "none")) throw new ArgumentException(T("게임 설치 방법이 올바르지 않아요.","ゲームのインストール方法が正しくありません。","Invalid game install source."));
         if(request.Base is { } b)
         {
             RequireInstance(b); RequireUnlocked(b);
-            if(IsWorkerRunning(b)) throw new InvalidOperationException(T($"{b}번은 매크로 실행 중이라 복제할 수 없어요. 먼저 중지하세요.",$"{b}番はマクロ実行中のため複製できません。先に停止してください。",$"#{b} is running a macro and cannot be copied. Stop it first."));
+            if(IsWorkerRunning(b)) throw new InvalidOperationException(T($"{VmNo(b)}번은 매크로 실행 중이라 복제할 수 없어요. 먼저 중지하세요.",$"{VmNo(b)}番はマクロ実行中のため複製できません。先に停止してください。",$"{VmHash(b)} is running a macro and cannot be copied. Stop it first."));
             if(request.Count<2 && request.Install=="none" && !request.Setup) throw new ArgumentException(T("복제할 개수를 1개 이상 정하세요.","複製する数を1つ以上にしてください。","Choose at least one copy."));
         }
         if(request.Start)
@@ -489,8 +498,8 @@ internal static partial class Program
                     :T($"일회용 코드는 {room}회까지만 반복할 수 있어요.",$"使い捨てコードは{room}回までしか繰り返せません。",$"The single-use code allows only {room} loops."));
         }
         var copies=request.Count-1;
-        if(request.Base is { } source) RequireDisk(FolderBytes(VmDir(source)),copies);
-        else RequireDisk(request.Install!="none" || request.Setup?NewVmBytes():1L<<30,request.Count);
+        if(request.Base is { } source) RequireDisk(key,VmBytes(source),copies);
+        else RequireDisk(key,request.Install!="none" || request.Setup?NewVmBytes(key):1L<<30,request.Count);
         start:
         Directory.CreateDirectory(ProvisionDir);
         File.Delete(Path.Combine(ProvisionDir,"cancel"));
@@ -536,7 +545,7 @@ internal static partial class Program
             else
             {
                 Report("create");
-                baseVm=await CreateVm(UniqueVmName(request.Name is { Length: >0 } n?n.Trim():"셐 매크로",AllowedInstances.Values));
+                baseVm=await CreateVm(ProvisionEmulator(request),UniqueVmName(request.Name is { Length: >0 } n?n.Trim():"셐 매크로",AllowedInstances.Values));
             }
             instances.Add(baseVm); current=baseVm;
             if(request.Install!="none" || request.Setup) { Report("boot"); if(!await IsVmRunning(baseVm)) await BootVm(baseVm); }
@@ -551,8 +560,8 @@ internal static partial class Program
                 if(!await GameInstalled(baseVm)) throw new InvalidOperationException(T("게임이 설치돼 있지 않아요.","ゲームがインストールされていません。","The game is not installed."));
                 // Once the game has created its data folder (it was launched before, maybe a stopped setup), the
                 // onboarding starts from a reset that keeps the downloaded data; a never-launched install starts directly.
-                var launched=(await Run(Adb,"-s",SerialOf(baseVm),"shell",$"test -d /sdcard/Android/data/{Package} && echo yes || true")).Contains("yes");
-                if(!launched) await Run(Adb,"-s",SerialOf(baseVm),"shell",$"monkey -p {Package} -c android.intent.category.LAUNCHER 1");
+                var launched=(await Run(AdbOf(baseVm),"-s",SerialOf(baseVm),"shell",$"test -d /sdcard/Android/data/{Package} && echo yes || true")).Contains("yes");
+                if(!launched) await Run(AdbOf(baseVm),"-s",SerialOf(baseVm),"shell",$"monkey -p {Package} -c android.intent.category.LAUNCHER 1");
                 var pid=SpawnWorker(baseVm,[launched?"run":"tutorial","--stages","onboarding","--unit",unit,"--instance",baseVm.ToString(),"--background"]);
                 using var worker=Process.GetProcessById(pid);
                 while(!worker.HasExited)
@@ -561,7 +570,7 @@ internal static partial class Program
                     await Task.Delay(3000);
                 }
                 // The worker is not this process's child, so its exit code is unreadable; its stage record tells the result.
-                if(Str(ReadJson(Path.Combine(ArtifactsDir(baseVm),"progress.json")),"Status")!="complete" || Str(ReadJson(Path.Combine(ArtifactsDir(baseVm),"progress.json")),"Stage")!="onboarding") throw new Exception(T($"{baseVm}번 튜토리얼 세팅이 멈췄어요. 그 VM의 로그를 확인하세요.",$"{baseVm}番のチュートリアル準備が止まりました。そのVMのログを確認してください。",$"The tutorial setup on #{baseVm} stopped. Check that VM's log."));
+                if(Str(ReadJson(Path.Combine(ArtifactsDir(baseVm),"progress.json")),"Status")!="complete" || Str(ReadJson(Path.Combine(ArtifactsDir(baseVm),"progress.json")),"Stage")!="onboarding") throw new Exception(T($"{VmNo(baseVm)}번 튜토리얼 세팅이 멈췄어요. 그 VM의 로그를 확인하세요.",$"{VmNo(baseVm)}番のチュートリアル準備が止まりました。そのVMのログを確認してください。",$"The tutorial setup on {VmHash(baseVm)} stopped. Check that VM's log."));
             }
             var baseName=AllowedInstances.GetValueOrDefault(baseVm)??request.Name??"셐 매크로";
             var copies=new List<int>();
@@ -570,7 +579,7 @@ internal static partial class Program
                 Report("copy",T($"{k}/{request.Count-1}대 복제 중",$"{k}/{request.Count-1}台を複製中",$"Copying {k}/{request.Count-1}"));
                 ForgetVmLists();
                 await QuitVm(baseVm);
-                RequireDisk(FolderBytes(VmDir(baseVm)),1);
+                RequireDisk(KindOf(baseVm),VmBytes(baseVm),1);
                 var copy=await CopyVm(baseVm,UniqueVmName($"{baseName}-{k+1}",AllowedInstances.Values));
                 copies.Add(copy); instances.Add(copy);
             }

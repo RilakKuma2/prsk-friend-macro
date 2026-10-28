@@ -103,7 +103,7 @@ internal static partial class Program
             await Task.Delay(2000);
         }
         if(!booted) throw new Exception("Emulator boot timeout. Account data was not reset.");
-        if(!await LiveResolutionOk(Serial)) await EnsureResolution();
+        if(!await LiveResolutionOk(Instance)) await EnsureResolution();
         LastGuard=DateTime.MinValue; await Guard();
         var current=await Shell(ResumedActivity);
         if(!current.Contains(Package) && !current.Contains("com.google.android.gms"))

@@ -42,6 +42,14 @@ h1{font-size:22px;font-weight:700;letter-spacing:-.02em}
 .ghost:active{background:var(--fill-strong)}
 .ghost.icon{width:36px;padding:0;display:grid;place-items:center}
 
+/* Emulator tabs: one per installed emulator, shown when there are two or more. */
+.tabs{display:flex;gap:6px;overflow-x:auto;padding:10px 0 0;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tabs button{height:36px;padding:0 14px;border-radius:18px;background:var(--fill);color:var(--text-2);font-size:14px;font-weight:600;white-space:nowrap;display:inline-flex;align-items:center;gap:6px;flex:none}
+.tabs button:hover{background:var(--fill-strong)}
+.tabs button.on{background:var(--text);color:var(--bg)}
+.tabs button .n{font-size:12px;opacity:.65;font-variant-numeric:tabular-nums}
+.tabs button .on-dot{width:6px;height:6px;border-radius:50%;background:var(--green)}
 .summary{display:flex;gap:28px;padding:18px 0 22px;align-items:flex-end}
 .summary div{display:flex;flex-direction:column}
 .summary b{font-size:28px;font-weight:700;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
@@ -322,6 +330,7 @@ select.field{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xml
   <div class="note ldnote" id="ldNote" style="display:none">LD플레이어를 찾지 못했어요. ldconsole.exe가 있는 폴더를 알려주세요.
     <div class="ldrow"><input class="field" id="ldPath" placeholder="예: D:\LDPlayer\LDPlayer9" spellcheck="false"><button class="btn primary" id="ldSave">저장</button></div>
     <div class="links" id="ldLinks"></div></div>
+  <nav class="tabs" id="tabs" style="display:none"></nav>
   <section class="summary">
     <div><b id="sRun">0</b><span>실행 중</span></div>
     <div><b id="sVm">0</b><span>VM 켜짐</span></div>
@@ -341,6 +350,7 @@ select.field{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xml
   <button class="btn primary" data-run="resume">이어하기</button>
   <button class="btn tonal" data-run="stages">단계 실행</button>
   <button class="btn tonal" data-run="run">처음부터</button>
+  <button class="btn tonal" id="invSel">초대 코드</button>
   <button class="btn danger" id="stopSel">중지</button>
 </div>
 
@@ -441,6 +451,23 @@ select.field{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xml
   </div>
 </section>
 
+<!-- Invitation codes of several instances at once -->
+<section class="sheet" id="invSheet">
+  <div class="sheet-head"><div><h2>초대 코드</h2><p id="invTargets"></p></div><button class="x" data-close>✕</button></div>
+  <div class="sheet-body">
+    <div class="label">지금 코드</div>
+    <div id="invNowList"></div>
+    <div class="label">새 코드</div>
+    <div class="invf" id="bInv">
+      <div class="invin"><input class="field" maxlength="15" placeholder="영문/숫자 15자 · 선택한 인스턴스 모두에 저장" autocomplete="off" spellcheck="false"><span class="nick"></span></div>
+      <button type="button" class="invonce">일회용</button>
+      <span class="mini invlim"><button type="button" data-d="-1" aria-label="줄이기">−</button><b></b><button type="button" data-d="1" aria-label="늘리기">+</button></span>
+    </div>
+    <div class="cur" id="bInvHint" style="font-size:12.5px;color:var(--text-3);margin:8px 2px 0"></div>
+  </div>
+  <div class="sheet-foot" style="display:flex;gap:8px"><button class="btn tonal block" id="bInvQueue">대기열 추가</button><button class="btn primary block" id="bInvSave">지금 쓰기</button></div>
+</section>
+
 <!-- Remote sheet -->
 <section class="sheet" id="remoteSheet">
   <div class="sheet-head"><div><h2>원격 접속</h2><p>같은 네트워크의 휴대폰이나 다른 PC에서 엽니다</p></div><button class="x" data-close>✕</button></div>
@@ -456,8 +483,7 @@ select.field{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xml
   <div class="sheet-body">
     <div id="provBox"></div>
     <div id="vmNewOnly">
-      <div class="label ld-only">LD플레이어</div>
-      <div class="label bs-only">블루스택</div>
+      <div class="label" id="vmEmu"></div>
       <div class="kv"><span>폴더</span><span id="vmLdFolder"></span></div>
       <div class="kv"><span>버전</span><span id="vmLdVersion"></span></div>
       <div class="links" id="vmLinks"></div>
@@ -465,7 +491,7 @@ select.field{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xml
       <input class="field ld-only" id="vName" placeholder="셐 매크로" spellcheck="false">
       <div class="label bs-only">세팅할 VM</div>
       <select class="field bs-only" id="vBase"></select>
-      <div class="cur bs-only" style="font-size:12.5px;color:var(--text-3);margin:6px 2px 0">VM은 블루스택 멀티 인스턴스 매니저에서 만들어요</div>
+      <div class="cur bs-only" id="vmMadeIn" style="font-size:12.5px;color:var(--text-3);margin:6px 2px 0"></div>
     </div>
     <div class="loop ld-only"><div><span id="vmCountLabel"></span><small id="vmCountHint"></small></div>
       <div class="stepper"><button data-vc="-1" aria-label="줄이기">−</button><span id="vmCountN"></span><button data-vc="1" aria-label="늘리기">+</button></div></div>
@@ -516,10 +542,25 @@ const DICT={"ja":{"셐 매크로":"セカマクロ","모든 VM 화면 새로 캡
 // BlueStacks (macOS) wording.
 Object.assign(DICT.ja,{"블루스택":"BlueStacks","＋ VM 세팅":"＋ VM準備","세팅할 VM":"準備するVM","VM은 블루스택 멀티 인스턴스 매니저에서 만들어요":"VMはBlueStacksのマルチインスタンスマネージャーで作ります","블루스택 VM에 게임을 설치하고 세팅해요":"BlueStacksのVMにゲームを入れて準備します","BlueStacks Air 받기":"BlueStacks Airを入手","apkpure 최신 버전을 브라우저에서 받아 설치하고 QooApp도 깔아요":"apkpureの最新版をブラウザで取得してインストールし、QooAppも入れます","게임은 그대로 두고 세팅만 해요":"ゲームはそのままで準備だけします","{0}을 세팅할까요?":"{0}を準備しますか？","잠기지 않은 VM이 없어요":"ロックされていないVMがありません"});
 Object.assign(DICT.en,{"블루스택":"BlueStacks","＋ VM 세팅":"＋ Set up VM","세팅할 VM":"VM to set up","VM은 블루스택 멀티 인스턴스 매니저에서 만들어요":"Create VMs in the BlueStacks multi-instance manager","블루스택 VM에 게임을 설치하고 세팅해요":"Install the game on a BlueStacks VM and set it up","BlueStacks Air 받기":"Get BlueStacks Air","apkpure 최신 버전을 브라우저에서 받아 설치하고 QooApp도 깔아요":"Downloads the latest apkpure version in the browser, installs it and adds QooApp","게임은 그대로 두고 세팅만 해요":"Keeps the installed game and only sets up","{0}을 세팅할까요?":"Set up {0}?","잠기지 않은 VM이 없어요":"No unlocked VM"});
-const isBs=()=>state.meta?.emulator==='bluestacks';
+// Several emulators (Windows) show as tabs; each owns a block of instance numbers (MuMu from 1000, ...) and its VMs are
+// numbered from 0 within its tab. macOS has only BlueStacks Air.
+Object.assign(DICT.ja,{"초대 코드":"招待コード","지금 코드":"現在のコード","새 코드":"新しいコード","{0}대에 초대 코드를 저장했어요":"{0}台に招待コードを保存しました","{0}대 대기열에 추가했어요":"{0}台の待機列に追加しました",
+  "{0} VM을 만들고 복제하고 세팅해요":"{0}のVMを作成・複製・準備します","{0} VM에 게임을 설치하고 세팅해요":"{0}のVMにゲームを入れて準備します","{0}에서 VM이 완전히 삭제돼요. 매크로 기록은 local/removed에 남아요.":"{0}からVMが完全に削除されます。マクロの記録はlocal/removedに残ります。",
+  "VM은 {0} 멀티 인스턴스 매니저에서 만들어요":"VMは{0}のマルチインスタンスマネージャーで作ります"});
+Object.assign(DICT.en,{"초대 코드":"Invitation code","지금 코드":"Current codes","새 코드":"New code","{0}대에 초대 코드를 저장했어요":"Saved the invitation code on {0}","{0}대 대기열에 추가했어요":"Queued the code on {0}",
+  "{0} VM을 만들고 복제하고 세팅해요":"Create, copy and set up {0} VMs","{0} VM에 게임을 설치하고 세팅해요":"Install the game on a {0} VM and set it up","{0}에서 VM이 완전히 삭제돼요. 매크로 기록은 local/removed에 남아요.":"The VM is deleted from {0}. Macro records stay in local/removed.",
+  "VM은 {0} 멀티 인스턴스 매니저에서 만들어요":"Create VMs in the {0} multi-instance manager"});
+const isMac=()=>state.meta?.emulator==='bluestacks';
+const block=()=>state.meta?.block||1000;
+const tabs=()=>(state.meta?.emulators||[]).filter(e=>e.installed);
+const curTab=()=>(state.meta?.emulators||[]).find(e=>e.key===state.tab);
+const kindOf=n=>[...(state.meta?.emulators||[])].reverse().find(e=>n>=e.base)?.key;
+const inTab=n=>!state.tab||kindOf(n)===state.tab;
+// BlueStacks makes, copies and removes VMs in its own manager: the tab only sets up VMs made there.
+const isBs=()=>curTab()?!curTab().canManage:isMac();
 let lang='ko';try{lang=localStorage.getItem('lang')||'ko'}catch(e){}
 function t(k,...a){return (DICT[lang]?.[k]??k).replace(/\{(\d)\}/g,(_,i)=>a[i])}
-const nth=n=>t('{0}번',n),nths=ns=>ns.map(nth).join(', ');
+const nth=n=>t('{0}번',n%block()),nths=ns=>ns.map(nth).join(', ');
 const original=new WeakMap();
 function translatePage(){
   document.documentElement.lang=lang;document.title=t('셐 매크로');
@@ -607,8 +648,9 @@ function render(){
       card.onclick=()=>openDetail(i.instance);
       grid.appendChild(card);
     }
+    card.style.display=inTab(i.instance)?'':'none';
     const [cls,label]=status(i);
-    if(i.locked)state.sel.delete(i.instance);
+    if(i.locked||!inTab(i.instance))state.sel.delete(i.instance);
     card.classList.toggle('sel',state.sel.has(i.instance));
     if(card.classList.contains('locked')!==i.locked||!card.dataset.lk){card.dataset.lk=1;card.classList.toggle('locked',i.locked);const lb=card.querySelector('.lockbtn');lb.innerHTML=i.locked?LOCK:UNLOCK;lb.title=t(i.locked?'잠금 해제':'잠그기')}
     card.querySelector('.thumb').classList.toggle('off',!i.vmRunning);
@@ -624,11 +666,15 @@ function render(){
     const due=!frameAt[i.instance]||(i.workerRunning&&Date.now()-frameAt[i.instance]>3000);
     if(i.hasFrame&&due&&!img.dataset.fresh){frameAt[i.instance]=Date.now();img.src=`/api/instances/${i.instance}/frame?t=${Date.now()}`}
   }
-  grid.classList.toggle('two',state.list.length>3);
-  $('#sRun').textContent=state.list.filter(i=>i.workerRunning).length;
-  $('#sVm').textContent=state.list.filter(i=>i.vmRunning).length;
-  $('#sDone').textContent=state.list.filter(i=>status(i)[0]==='done').length;
-  const free=state.list.filter(i=>!i.locked);
+  // Cards of VMs that were removed go away.
+  grid.querySelectorAll('.card').forEach(c=>{if(!state.list.some(i=>i.instance===+c.dataset.i))c.remove()});
+  renderTabs();
+  const shown=state.list.filter(i=>inTab(i.instance));
+  grid.classList.toggle('two',shown.length>3);
+  $('#sRun').textContent=shown.filter(i=>i.workerRunning).length;
+  $('#sVm').textContent=shown.filter(i=>i.vmRunning).length;
+  $('#sDone').textContent=shown.filter(i=>status(i)[0]==='done').length;
+  const free=shown.filter(i=>!i.locked);
   $('#selectAll').disabled=!free.length||free.every(i=>state.sel.has(i.instance));$('#selectNone').disabled=!state.sel.size;
   $('#dock').classList.toggle('show',state.sel.size>0);
   $('#selCount').textContent=t('{0}개 선택',state.sel.size);
@@ -641,7 +687,23 @@ function render(){
   if(state.detail!=null) renderDetail();
 }
 function toggle(n){if(cur(n)?.locked)return;state.sel.has(n)?state.sel.delete(n):state.sel.add(n);render()}
-$('#selectAll').onclick=()=>{state.list.filter(i=>!i.locked).forEach(i=>state.sel.add(i.instance));render()};
+$('#selectAll').onclick=()=>{state.list.filter(i=>!i.locked&&inTab(i.instance)).forEach(i=>state.sel.add(i.instance));render()};
+// Instances an action was sent to leave the selection, so the next action starts from a clean slate.
+function deselect(ns){ns.forEach(n=>state.sel.delete(n));render()}
+function renderTabs(){
+  const list=tabs(),nav=$('#tabs');nav.style.display=list.length>1?'':'none';
+  nav.innerHTML=list.map(e=>{const vms=state.list.filter(i=>kindOf(i.instance)===e.key),on=vms.some(i=>i.vmRunning);
+    return `<button data-tab="${e.key}" class="${e.key===state.tab?'on':''}">${on?'<i class="on-dot"></i>':''}${esc(e.label)}<span class="n">${vms.length}</span></button>`}).join('');
+  nav.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>setTab(b.dataset.tab));
+}
+function setTab(key){
+  if(key===state.tab)return;
+  state.tab=key;state.sel.clear();try{localStorage.setItem('tab',key)}catch(e){}
+  const tab=curTab();
+  document.body.classList.toggle('bluestacks',isBs());
+  $('#arrange').style.display=tab&&!tab.canArrange?'none':'';
+  vmInfo=null;loadVms();render();
+}
 $('#selectNone').onclick=()=>{state.sel.clear();render()};
 async function setLock(n,locked){await act(()=>api(`/instances/${n}/lock`,{locked}));await refresh()}
 $('#dLock').onclick=()=>setLock(state.detail,!cur().locked);
@@ -757,12 +819,34 @@ $('#runGo').onclick=async()=>{
   const body={mode:state.mode,from:state.point,stages:state.stages,unit:state.unit,bootVm:state.boot,loops:state.mode==='run'?state.loops:1,
     invite,inviteCode:invite==='set'?invCode:null,inviteMode:rInv.mode(),inviteLimit:rInv.once?rInv.limit:null};
   hide($('#runSheet'));
-  const msgs=[];
-  for(const n of state.targets){try{msgs.push((await api(`/instances/${n}/start`,body)).message)}catch(e){toast(e.message,true);return refresh()}}
+  const msgs=[],started=[];
+  for(const n of state.targets){try{msgs.push((await api(`/instances/${n}/start`,body)).message);started.push(n)}catch(e){toast(e.message,true);deselect(started);return refresh()}}
+  deselect(started);
   toast(state.targets.length>1?t('{0}대 시작했어요',state.targets.length):msgs[0]);refresh();
 };
 $('#stopSel').onclick=async()=>{const targets=[...state.sel];if(!await confirmBox(t('매크로를 멈출까요?'),t('{0} · 현재 단계가 끝나면 멈추고 게임은 그대로 둡니다.',nths(targets)),t('중지'),true))return;
-  for(const n of targets)await act(()=>api(`/instances/${n}/stop`,{}));toast(t('{0}대 중지 요청했어요',targets.length))};
+  for(const n of targets)await act(()=>api(`/instances/${n}/stop`,{}));deselect(targets);toast(t('{0}대 중지 요청했어요',targets.length))};
+/* Invitation codes for every selected instance: replace the active code, or queue it after the current ones. */
+const bInv=invField('#bInv',()=>{$('#bInvHint').textContent=!bInv.once?t('지울 때까지 계속 이 코드로 초대해요'):bInv.limit>1?t('{0}번 등록되면 다음 코드로 넘어가요',bInv.limit):t('한 번 등록되면 다음 코드로 넘어가요')});
+function openInvites(targets){
+  state.invTargets=targets;bInv.set('','permanent',1,null);$('#invTargets').textContent=nths(targets);
+  $('#invNowList').innerHTML=targets.map(n=>{const i=cur(n),v=i?.invite;
+    return `<div class="qrow"><b>${nth(n)}</b><code>${v?esc(v.code):t('없음')}</code>${v?`<span class="ptag">${MODE[v.mode]}${v.mode==='once'?` ${i.inviteUses}/${i.inviteLimit}`:''}</span>`:''}${i?.queueCount?`<span>${t('· 대기열 {0}개',i.queueCount)}</span>`:''}</div>`}).join('');
+  show('#invSheet');
+}
+async function sendInvites(path){
+  const code=bInv.code();
+  if(!/^[A-Za-z0-9]{15}$/.test(code))return toast(t('초대 코드는 영문/숫자 15자예요'),true);
+  $('#bInv input').blur();
+  const done=[];
+  for(const n of state.invTargets){try{await api(`/instances/${n}/${path}`,{code,mode:bInv.mode(),limit:bInv.once?bInv.limit:null});done.push(n)}
+    catch(e){toast(e.message,true);deselect(done);return refresh()}}
+  hide($('#invSheet'));deselect(done);
+  toast(t(path==='invite'?'{0}대에 초대 코드를 저장했어요':'{0}대 대기열에 추가했어요',done.length));refresh();
+}
+$('#invSel').onclick=()=>openInvites([...state.sel].sort((a,b)=>a-b));
+$('#bInvSave').onclick=()=>sendInvites('invite');
+$('#bInvQueue').onclick=()=>sendInvites('invite/queue');
 
 /* Detail */
 let liveTimer,logTimer,shotUrl;
@@ -887,13 +971,16 @@ function ldLinks(ld,game){
   const a=game?[[t('게임 페이지 (apkpure)'),ld.gamePage]]:[];
   if(ld.versionUrl)a.push([t('지금 버전 받기 ({0})',ld.version),ld.versionUrl]);
   if(ld.version!==ld.validated&&ld.validatedUrl)a.push([t('검증된 버전 받기 ({0})',ld.validated),ld.validatedUrl]);
-  if(ld.kind==='bluestacks')a.push([t('BlueStacks Air 받기'),ld.latestUrl]);
-  else a.push([t('LD플레이어 9 최신 버전'),ld.latestUrl],[t('공식 사이트'),ld.site]);
+  if(ld.kind==='bluestacks'&&isMac())a.push([t('BlueStacks Air 받기'),ld.latestUrl]);
+  else if(ld.kind==='ldplayer')a.push([t('LD플레이어 9 최신 버전'),ld.latestUrl],[t('공식 사이트'),ld.site]);
+  else a.push([t('공식 사이트'),ld.site]);
   return a.map(([l,u])=>`<a class="linkbtn" href="${esc(u)}" target="_blank" rel="noopener">${esc(l)}</a>`).join('');
 }
-async function loadVms(){try{vmInfo=await api('/vms');renderVmInfo()}catch(e){}}
+// Folder, version, links and disk space of the emulator in the current tab.
+async function loadVms(){try{const tab=state.tab;const info=await api('/vms'+(tab?`?emulator=${tab}`:''));if(tab===state.tab){vmInfo=info;renderVmInfo()}}catch(e){}}
 function renderVmInfo(){
   if(!vmInfo)return;const ld=vmInfo.ld,p=vmInfo.provision;
+  $('#vmEmu').textContent=curTab()?.label||'';
   const pill=$('#provPill');pill.style.display=p&&p.alive?'':'none';
   if(p&&p.alive)pill.querySelector('em').textContent=t('VM 세팅 중')+' · '+(p.detail||p.label);
   $('#ldLinks').innerHTML=ldLinks(ld);
@@ -908,7 +995,7 @@ function openVm(mode,base){
   vm.mode=mode;vm.base=base??null;vm.count=mode==='clone'?2:1;vm.start=false;vm.loops=1;vInv.set('','permanent',1,null);
   // BlueStacks sets up a VM made in its own manager: pick one that is not locked.
   if(isBs()){
-    const free=state.list.filter(i=>!i.locked);
+    const free=state.list.filter(i=>!i.locked&&inTab(i.instance));
     $('#vBase').innerHTML=free.length?free.map(i=>`<option value="${i.instance}">${esc(nth(i.instance)+' · '+i.name)}</option>`).join(''):`<option value="">${esc(t('잠기지 않은 VM이 없어요'))}</option>`;
     if(vm.base==null||!free.some(i=>i.instance===vm.base))vm.base=free[0]?.instance??null;
     $('#vBase').value=vm.base??'';
@@ -921,14 +1008,15 @@ function renderVm(){
   const clone=vm.mode==='clone',n=clone?vm.count-1:vm.count;
   $('#vmTitle').textContent=clone?t('{0} 복제',nth(vm.base)):t('VM 관리');
   $('#vmSub').style.display=clone?'none':'';
-  $('#vmSub').textContent=t(isBs()?'블루스택 VM에 게임을 설치하고 세팅해요':'LD플레이어 VM을 만들고 복제하고 세팅해요');
+  $('#vmSub').textContent=t(isBs()?'{0} VM에 게임을 설치하고 세팅해요':'{0} VM을 만들고 복제하고 세팅해요',curTab()?.label||'');
+  $('#vmMadeIn').textContent=t('VM은 {0} 멀티 인스턴스 매니저에서 만들어요',curTab()?.label||'');
   $('#vmNewOnly').style.display=$('#vmSetupOnly').style.display=clone?'none':'';
   $('#vmCountLabel').textContent=t(clone?'복제할 개수':'만들 VM 수');$('#vmCountN').textContent=t('{0}대',n);
   $('#vmCountHint').textContent=clone?'':vm.count>1?t('1대를 세팅한 뒤 {0}대를 복제해요',vm.count-1):t('1대만 만들어요');
   $('[data-vc="-1"]').disabled=n<=1;$('[data-vc="1"]').disabled=n>=30;
   $$('#vInstall button').forEach(b=>b.classList.toggle('on',b.dataset.i===vm.install));
-  $('#vInstallHint').textContent=t(isBs()?{apkpure:'apkpure 최신 버전을 브라우저에서 받아 설치하고 QooApp도 깔아요',none:'게임은 그대로 두고 세팅만 해요'}[vm.install]
-    :{apkpure:'apkpure 최신 버전을 셐 매크로 창에서 받아 설치하고 QooApp도 깔아요',none:'게임 없이 VM만 만들어요'}[vm.install]);
+  $('#vInstallHint').textContent=t(isMac()?{apkpure:'apkpure 최신 버전을 브라우저에서 받아 설치하고 QooApp도 깔아요',none:'게임은 그대로 두고 세팅만 해요'}[vm.install]
+    :{apkpure:'apkpure 최신 버전을 셐 매크로 창에서 받아 설치하고 QooApp도 깔아요',none:isBs()?'게임은 그대로 두고 세팅만 해요':'게임 없이 VM만 만들어요'}[vm.install]);
   $('#vSetupSw .sw').classList.toggle('on',vm.setup);$('#vStartSw .sw').classList.toggle('on',vm.start);
   $('#vStartLabel').textContent=t(clone?'복제한 VM에서 바로 매크로 시작':'세팅 후 바로 매크로 시작');
   $('#vUnitBox').style.display=(!clone&&vm.setup)||vm.start?'':'none';
@@ -962,8 +1050,8 @@ $('#vmGo').onclick=async()=>{
   if(isBs()&&vm.base==null)return toast(t('잠기지 않은 VM이 없어요'),true);
   if(!clone&&!await confirmBox(isBs()?t('{0}을 세팅할까요?',nth(vm.base)):t('VM {0}대를 세팅할까요?',vm.count),t('게임 설치와 튜토리얼에 시간이 걸려요. 진행 상황은 이 창과 카드에서 볼 수 있어요.'),t('세팅 시작')))return;
   const body={name:$('#vName').value.trim()||null,count:vm.count,base:vm.base,install:clone?'none':vm.install,setup:!clone&&vm.setup,unit:vm.unit,
-    start:vm.start,startBase:!clone,loops:vm.start?vm.loops:1,inviteCode:vm.start&&code?code:null,inviteMode:vInv.mode(),inviteLimit:vInv.once?vInv.limit:null};
-  try{toast((await api('/vms/provision',body)).message);await loadVms();refresh()}catch(e){toast(e.message,true)}
+    start:vm.start,startBase:!clone,loops:vm.start?vm.loops:1,inviteCode:vm.start&&code?code:null,inviteMode:vInv.mode(),inviteLimit:vInv.once?vInv.limit:null,emulator:state.tab||null};
+  try{toast((await api('/vms/provision',body)).message);if(vm.base!=null)deselect([vm.base]);await loadVms();refresh()}catch(e){toast(e.message,true)}
 };
 $('#vmBtn').onclick=()=>openVm('new');
 $('#vmNew').onclick=()=>openVm('new');
@@ -971,13 +1059,13 @@ $('#vmSetup').onclick=()=>openVm('new',state.sel.size===1?[...state.sel][0]:null
 $('#vBase').onchange=()=>{vm.base=$('#vBase').value===''?null:+$('#vBase').value};
 $('#cloneSel').onclick=()=>{if(state.sel.size===1)openVm('clone',[...state.sel][0])};
 $('#removeSel').onclick=async()=>{const targets=[...state.sel].sort((a,b)=>a-b);
-  if(!await confirmBox(t('{0} VM을 지울까요?',nths(targets)),t('LD플레이어에서 VM이 완전히 삭제돼요. 매크로 기록은 local/removed에 남아요.'),t('삭제'),true))return;
+  if(!await confirmBox(t('{0} VM을 지울까요?',nths(targets)),t('{0}에서 VM이 완전히 삭제돼요. 매크로 기록은 local/removed에 남아요.',curTab()?.label||''),t('삭제'),true))return;
   for(const n of targets){try{toast((await api(`/instances/${n}/remove`,{})).message);state.sel.delete(n)}catch(e){toast(e.message,true);break}}
-  refresh()};
+  render();refresh()};
 $('#provPill').onclick=()=>openVm('new');
 $('[data-vmx="clone"]').onclick=()=>openVm('clone',state.detail);
 $('[data-vmx="remove"]').onclick=async()=>{const n=state.detail;
-  if(!await confirmBox(t('{0} VM을 지울까요?',nth(n)),t('LD플레이어에서 VM이 완전히 삭제돼요. 매크로 기록은 local/removed에 남아요.'),t('삭제'),true))return;
+  if(!await confirmBox(t('{0} VM을 지울까요?',nth(n)),t('{0}에서 VM이 완전히 삭제돼요. 매크로 기록은 local/removed에 남아요.',curTab()?.label||''),t('삭제'),true))return;
   hide($('#detail'));await act(()=>api(`/instances/${n}/remove`,{}))};
 setInterval(()=>{if(!document.hidden)loadVms()},4000);
 $('#ldSave').onclick=async()=>{try{toast((await api('/ldplayer',{path:$('#ldPath').value})).message);setTimeout(()=>location.reload(),800)}catch(e){toast(e.message,true)}};
@@ -985,7 +1073,11 @@ $('#langBtn').onclick=()=>{renderLangs();show('#langSheet')};
 
 (async function init(){
   state.meta=await api('/meta');
+  // The last tab shown, else the first installed emulator.
+  let saved=null;try{saved=localStorage.getItem('tab')}catch(e){}
+  state.tab=tabs().some(e=>e.key===saved)?saved:tabs()[0]?.key;
   document.body.classList.toggle('bluestacks',isBs());
+  $('#arrange').style.display=curTab()&&!curTab().canArrange?'none':'';
   // The server's language is shared by every client (and its messages and logs); follow it.
   if(state.meta.language&&state.meta.language!==lang){lang=state.meta.language;try{localStorage.setItem('lang',lang)}catch(e){}translatePage()}
   state.stages=[...state.meta.plan];

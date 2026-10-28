@@ -71,16 +71,6 @@ internal static partial class Program
 
     // ---- Processes
 
-    static string RunText(string file,params string[] args)
-    {
-        var info=new ProcessStartInfo(file) { UseShellExecute=false,RedirectStandardOutput=true,RedirectStandardError=true,CreateNoWindow=true,StandardOutputEncoding=Encoding.UTF8 };
-        foreach(var arg in args) info.ArgumentList.Add(arg);
-        using var process=Process.Start(info)!;
-        var output=process.StandardOutput.ReadToEndAsync(); process.StandardError.ReadToEndAsync();
-        if(!process.WaitForExit(15000)) { process.Kill(true); throw new TimeoutException($"{Path.GetFileName(file)} did not finish."); }
-        return output.Result;
-    }
-
     // Instance id -> pid. The app opened without --instance (from the Dock, or after an update) runs the first image's instance.
     static Dictionary<string,int> BlueStacksProcesses()
     {
@@ -161,6 +151,9 @@ internal static partial class Program
             $"BlueStacks {target.Name} の設定を変える必要があります: {string.Join("、",wrong)}。BlueStacksの設定のディスプレイ・詳細タブで変えてからやり直してください。",
             $"BlueStacks {target.Name} needs: {string.Join(", ",wrong)}. Change them in BlueStacks settings (Display, Advanced) and try again."));
     }
+
+    static string PrepareBlueStacks(int instance) { RequireBlueStacksSettings(instance); return "960x540 DPI160, ADB enabled."; }
+    static string BlueStacksVmDir(int instance)=>Path.Combine(BlueStacksData,"Engine",BlueStacksInstanceOf(instance).Id);
 
     static string? BlueStacksVersionCache;
     static string? BlueStacksVersion()

@@ -26,10 +26,11 @@
   </ItemGroup>
   <ItemGroup Condition="$(TargetFramework.Contains('-windows'))">
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" />
-    <Compile Remove="Mac*.cs" />
+    <!-- BlueStacks.cs is BlueStacks Air on macOS, BlueStacks5.cs BlueStacks 5 on Windows; they provide the same calls. -->
+    <Compile Remove="Mac*.cs;BlueStacks.cs" />
   </ItemGroup>
   <ItemGroup Condition="!$(TargetFramework.Contains('-windows'))">
     <!-- System.Drawing's Bitmap is Windows-only; MacImaging.cs provides the same calls with its own PNG reader. -->
-    <Compile Remove="Gui.cs;Updater.cs" />
+    <Compile Remove="Gui.cs;Updater.cs;BlueStacks5.cs" />
   </ItemGroup>
 </Project>

@@ -44,5 +44,9 @@ internal static partial class Program
         new { Key="mmj",Label=T("모모점","モモジャン","MMJ") },new { Key="leo",Label=T("레오니","レオニ","Leo/need") },
         new { Key="vbs",Label=T("비배스","ビビバス","VBS") },new { Key="wxs",Label=T("원더쇼","ワンダショ","WxS") },new { Key="n25",Label=T("니고","ニーゴ","N25") }
     ];
-    static string InstanceLabel(int instance)=>T($"{instance}번",$"{instance}番",$"#{instance}");
+    // How messages name a VM: by its number in the first emulator's block (LDPlayer, or BlueStacks Air), else with its
+    // emulator and its number there ("뮤뮤 플레이어 0번", "MuMu Player #0").
+    static string VmNo(int instance)=>Emulators.FirstOrDefault(e=>instance>=e.Base && instance<e.Base+EmulatorBlock) is { Base: >0 } e?$"{EmulatorLabel(e.Key)} {instance-e.Base}":instance.ToString();
+    static string VmHash(int instance)=>Emulators.FirstOrDefault(e=>instance>=e.Base && instance<e.Base+EmulatorBlock) is { Base: >0 } e?$"{EmulatorLabel(e.Key)} #{instance-e.Base}":$"#{instance}";
+    static string InstanceLabel(int instance)=>T($"{VmNo(instance)}번",$"{VmNo(instance)}番",VmHash(instance));
 }

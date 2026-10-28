@@ -84,11 +84,21 @@ internal static partial class Program
         var api=app.MapGroup("/api");
         api.MapGet("/meta",()=>Results.Json(Meta()));
         api.MapGet("/event",async()=>Results.Json(await GetCurrentEvent()));
-        api.MapGet("/vms",()=>Results.Json(new { Ld=EmulatorInfo(),Disk=DiskInfo(),Provision=ReadProvision() is { } p?new { p.State,p.Step,Label=ProvisionStepLabel(p.Step),p.Detail,p.Instances,p.Current,p.Error,p.Started,p.Updated,Alive=ProvisionAlive(p) }:null }));
+        // The VM sheet shows one emulator: its folder, version, links and the free space where its VMs live.
+        api.MapGet("/vms",(string? emulator)=>
+        {
+            var key=Emulators.Any(e=>e.Key==emulator)?emulator!:InstalledEmulators.FirstOrDefault()?.Key??Emulators[0].Key;
+            return Results.Json(new { Ld=EmulatorInfo(key),Disk=DiskInfo(key),Provision=ProvisionInfo() });
+        });
+        static object? ProvisionInfo()=>ReadProvision() is { } p?new { p.State,p.Step,Label=ProvisionStepLabel(p.Step),p.Detail,p.Instances,p.Current,p.Error,p.Started,p.Updated,Alive=ProvisionAlive(p) }:null;
         api.MapPost("/vms/provision",(ProvisionRequest request)=>Ok(StartProvision(request)));
         api.MapPost("/vms/game-download",()=>Ok(OpenGameDownload()?T("게임 받기 창을 열었어요.","ゲーム取得ウィンドウを開きました。","Opened the game download window.")
+#if WINDOWS
+            :T("이 PC의 셐 매크로 창에서만 받을 수 있어요.","このPCのセカマクロのウィンドウでのみ取得できます。","Only the app window on this PC can download it.")));
+#else
             // macOS has no app window: the page opens in the default browser and setup picks the file up from Downloads.
-            :IsBlueStacks?OpenGamePage():T("이 PC의 셐 매크로 창에서만 받을 수 있어요.","このPCのセカマクロのウィンドウでのみ取得できます。","Only the app window on this PC can download it.")));
+            :OpenGamePage()));
+#endif
         api.MapPost("/vms/update",()=>Ok(StartProvision(new ProvisionRequest(null,1,null,"none",false,null,false,false,1,null,null,null,true))));
         api.MapPost("/vms/provision/cancel",()=>Ok(CancelProvision()));
         api.MapPost("/instances/{n:int}/remove",async(int n)=>Ok(await RemoveVm(n)));
@@ -119,7 +129,7 @@ internal static partial class Program
         api.MapPost("/instances/{n:int}/invite/clear",(int n)=>Ok(ClearInvite(n)));
         api.MapGet("/instances/{n:int}/invites/{file}",(int n,string file)=>InviteImage(n,file) is { } bytes?Results.File(bytes,"image/png"):Results.NotFound());
         api.MapPost("/arrange",async()=>await VmArrange()?Ok(T("창을 정렬했습니다.","ウィンドウを整列しました。","Arranged the windows."))
-            :Results.Json(new { message=T("블루스택은 창 정렬을 지원하지 않아요.","BlueStacksはウィンドウ整列に対応していません。","BlueStacks cannot arrange windows.") },statusCode:400));
+            :Results.Json(new { message=T("정렬할 수 있는 켜진 VM이 없어요. 블루스택은 창 정렬을 지원하지 않아요.","整列できる起動中のVMがありません。BlueStacksはウィンドウ整列に対応していません。","No running VM can be arranged. BlueStacks cannot arrange windows.") },statusCode:400));
         api.MapPost("/validate",async()=>{ var result=await RunMacro("validate"); return result.Code==0?Ok(T("흐름 검증 통과","フロー検証に合格","Flow validation passed")):Results.Json(new { message=result.Output.Trim() },statusCode:400); });
         api.MapGet("/server",(HttpContext context)=>Results.Json(new
         {

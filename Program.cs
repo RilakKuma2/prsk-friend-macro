@@ -87,7 +87,7 @@ internal static partial class Program
             if(args[0] is "launcher" or "gui") { ShowGui(); return 0; }
             if(args[0]=="web") { await RunWebCommand(args); return 0; }
             if(args[0]=="provision") { await RunProvision(); return 0; }
-            if(args[0]=="check-vms") { foreach(var n in AllowedInstances.Keys) { string game; try { game=(await Run(Adb,"-s",SerialOf(n),"shell",$"pm path {Package}")).Trim().Replace('\n',' '); } catch(Exception ex) { game="ERR "+ex.Message; } Console.WriteLine($"{n} {AllowedInstances[n]} running={await IsVmRunning(n)} game={game}"); } return 0; }
+            if(args[0]=="check-vms") { foreach(var n in AllowedInstances.Keys) { string game; try { game=(await Run(AdbOf(n),"-s",SerialOf(n),"shell",$"pm path {Package}")).Trim().Replace('\n',' '); } catch(Exception ex) { game="ERR "+ex.Message; } Console.WriteLine($"{n} {AllowedInstances[n]} running={await IsVmRunning(n)} game={game}"); } return 0; }
             if(args[0]=="check-checkpoint") { await VerifyCheckpointContention(); return 0; }
             if(args[0]=="check-story-reward") { VerifyStoryReward(args[1]); return 0; }
             if(args[0]=="check-story-receipt") { VerifyStoryReceipt(args[1]); return 0; }
@@ -106,7 +106,7 @@ internal static partial class Program
             if(args[0]=="check-home") { using var shot=new Bitmap(args[1]); Console.WriteLine(IsAreaMain(shot)); return 0; }
             if(args[0]=="check-auto-end") { using var shot=new Bitmap(args[1]); Console.WriteLine(IsAutoEnd(shot)); return 0; }
             if(args[0]=="check-event") { using var shot=new Bitmap(args[1]); Console.WriteLine($"Button={Matches(shot,LoadSteps().Single(s=>s.Name=="event-story-open"))}, List={IsEventStoryList(shot)}, Episode1={Matches(shot,LoadSteps().Single(s=>s.Name=="event-story-first"))}"); return 0; }
-            if(args[0]=="check-story") { using var shot=new Bitmap(args[1]); Console.WriteLine($"Reader={IsStoryReader(shot)}, Dark={IsDarkStoryTransition(shot)}, SkipY={FindBottomSkip(shot)}, Checked={StoryContinuousChecked(shot)}"); return 0; }
+            if(args[0]=="check-story") { using var shot=new Bitmap(args[1]); Console.WriteLine($"Reader={IsStoryReader(shot)}, Dark={IsDarkStoryTransition(shot)}, SkipY={FindBottomSkip(shot)}, Checked={StoryContinuousChecked(shot)}, Choice={IsStoryChoice(shot)}"); return 0; }
             if(args[0]=="check-rating") { using var shot=new Bitmap(args[1]); Console.WriteLine(IsRatingPrompt(shot)); return 0; }
             if(args[0]=="check-title") { using var shot=new Bitmap(args[1]); Console.WriteLine(Matches(shot,LoadSteps().Single(s=>s.Name=="title-start"))); return 0; }
             if(args[0]=="check-guide") { using var shot=new Bitmap(args[1]); Console.WriteLine($"Globe={HasAreaGlobe(shot)}, Guide={IsHomeGuide(shot)}, Score={HomeGuideMinError:F2}, Name={IsNameDialog(shot)}"); return 0; }
@@ -319,7 +319,11 @@ internal static partial class Program
         if(row!=null && row[1]!=Target) throw new Exception("Instance name changed. Stopped.");
         if(row!=null && row[4]=="1")
         {
-            try { if((await Run(Adb,"-s",Serial,"get-state")).Trim()=="device") { LastGuard=DateTime.UtcNow; return; } }
+            try
+            {
+                if(attempt>0) await ConnectVm(Instance);
+                if((await Run(Adb,"-s",Serial,"get-state")).Trim()=="device") { LastGuard=DateTime.UtcNow; return; }
+            }
             catch when(attempt<2) { }
         }
         if(attempt<2) await Task.Delay(1000);
@@ -330,43 +334,26 @@ internal static partial class Program
     {
         var row=await VmRow(Instance);
         if(row==null || row[1]!=Target) throw new Exception("Instance identity differs. Nothing changed.");
-        if(IsBlueStacks)
-        {
-            RequireBlueStacksSettings(Instance);
-            Console.WriteLine($"Checked {Instance}: {Target}, 960x540 DPI160, ADB enabled.");
-            return;
-        }
-        var path=LdConfig(Instance);
-        var config=System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(path))!;
-        var matches=config["advancedSettings.resolution"]?["width"]?.GetValue<int>()==960 && config["advancedSettings.resolution"]?["height"]?.GetValue<int>()==540
-            && config["advancedSettings.resolutionDpi"]?.GetValue<int>()==160 && config["advancedSettings.cpuCount"]?.GetValue<int>()==2 && config["advancedSettings.memorySize"]?.GetValue<int>()==3072 && config["basicSettings.adbDebug"]?.GetValue<int>()==1;
-        if(!matches)
-        {
-            if(row[4]=="1") throw new Exception("Settings differ on a running instance; stop that instance before prepare.");
-            var backup=$"artifacts/leidian{Instance}.before.config";
-            if(!File.Exists(backup)) File.Copy(path,backup);
-            config["advancedSettings.resolution"]=new System.Text.Json.Nodes.JsonObject { ["width"]=960,["height"]=540 };
-            config["advancedSettings.resolutionDpi"]=160; config["advancedSettings.cpuCount"]=2; config["advancedSettings.memorySize"]=3072; config["basicSettings.adbDebug"]=1;
-            await File.WriteAllTextAsync(path,config.ToJsonString(JsonOptions));
-        }
-        Console.WriteLine($"Prepared {Instance}: {Target}, 960x540 DPI160, 2 CPU, 3072 MB, ADB enabled. Original config backed up.");
+        Console.WriteLine($"Prepared {Instance} ({KindOf(Instance)}): {Target}, {await PrepareVm(Instance,row[4]=="1")}");
     }
     // Every VM must run at 960x540 DPI 160; LDPlayer can lose a VM's settings file (one came back at 1280x720).
     // A VM that is off gets its settings fixed before launch; one that is on is measured and, if wrong, restarted with fixed settings.
-    static async Task<bool> LiveResolutionOk(string serial)
+    static async Task<bool> LiveResolutionOk(int instance)
     {
         string output;
-        try { output=await Run(Adb,"-s",serial,"shell","wm size; wm density"); }
+        try { output=await Run(AdbOf(instance),"-s",SerialOf(instance),"shell","wm size; wm density"); }
         catch { return true; } // Not reachable yet: the boot wait or Guard reports that.
-        return output.Contains("Physical size: 960x540") && output.Contains("Physical density: 160") && !output.Contains("Override");
+        // A reply cut short (the adb server restarting) tells nothing; only a reported size can be wrong.
+        return !output.Contains("Physical size") || ResolutionMatches(output);
     }
     static async Task EnsureResolution()
     {
         var row=await VmRow(Instance);
         if(row==null) return;
         if(row[4]!="1") { await PrepareInstance(); return; }
-        if(await LiveResolutionOk(Serial)) return;
-        if(IsBlueStacks) throw new Exception("VM is not running at 960x540 DPI160. Change it in BlueStacks settings (Display) and restart the instance.");
+        await ConnectVm(Instance);
+        if(await LiveResolutionOk(Instance)) return;
+        if(!FixesSettings(Instance)) throw new Exception("VM is not running at 960x540 DPI160. Change it in BlueStacks settings (Display) and restart the instance.");
         Console.WriteLine("VM is not running at 960x540 DPI160; restarting it with fixed settings.");
         await QuitVm(Instance);
         await PrepareInstance();
@@ -377,7 +364,7 @@ internal static partial class Program
             try { await ConnectVm(Instance); if((await Shell("getprop sys.boot_completed")).Trim()=="1") break; } catch { }
             await Task.Delay(2000);
         }
-        if(!await LiveResolutionOk(Serial)) throw new Exception("VM resolution is still not 960x540 DPI160 after restarting with fixed settings.");
+        if(!await LiveResolutionOk(Instance)) throw new Exception("VM resolution is still not 960x540 DPI160 after restarting with fixed settings.");
         LastGuard=DateTime.MinValue;
     }
 #if WINDOWS
@@ -591,6 +578,13 @@ internal static partial class Program
             var skipOptional=false;
             var recovered=false;
             var lastRecovery=DateTime.UtcNow;
+            // A story's SKIP shows once its menu is open; a step reached without one (a resume, a recovery) taps the menu again.
+            if(previous==null && step.Name.EndsWith("-skip") && steps.FirstOrDefault(s=>s.Name==step.Name[..^"skip".Length]+"menu") is { } storyMenu) previous=storyMenu;
+            // The screen after a story's menu, SKIP and confirmation: a short story can end under fast taps before its menu is seen.
+            var afterStory=step.Name.EndsWith("-menu") && step.Name!="event-live-menu"?selectedSteps.Skip(stepIndex+1)
+                .SkipWhile(s=>s.Name.StartsWith(step.Name[..^"menu".Length]) && (s.Name.EndsWith("-skip") || s.Name.EndsWith("-confirm"))).FirstOrDefault():null;
+            // Another story's menu looks the same, so it tells nothing.
+            if(afterStory!=null && RapidStorySteps.Contains(afterStory.Name)) afterStory=null;
             using var expected=new Bitmap(step.Image);
             while(true)
             {
@@ -620,10 +614,22 @@ internal static partial class Program
                         }
                         continue;
                     }
+                    // An installed game older than the server's asks for a store update and goes no further.
+                    if(Matches(screen,new Step("app-update","templates/app-update.png",480,318,410,304,140,30,"checkpoint")))
+                        throw new Exception("The game must be updated (新しいアプリがあります). Update it in VM management (game update) and start again.");
                     if(await RecoverStalledTitle(screen)) { lastActivityCheck=DateTime.MinValue; previous=null; continue; }
                     if(onboardingStep && steps.IndexOf(step)<steps.FindIndex(s=>s.Name=="gift-claim-all") && IsGiftInbox(screen))
                     { HomeGuidesCompleted=true; skipOptional=true; break; }
                     if(await EscapeUnexpectedStory(screen,step.Name)) { previous=null; continue; }
+                    // Waiting for a story's menu or its SKIP at a choice: pick it; the menu tapped at the choice did not open
+                    // and is tapped again once it shows.
+                    if((step.Name.EndsWith("-menu") || step.Name.EndsWith("-skip")) && IsStoryChoice(screen))
+                    {
+                        Console.WriteLine("Story choice shown; picking the first one.");
+                        await Shell($"input tap {StoryChoiceX} 270"); await Task.Delay(800);
+                        lastRetry=DateTime.UtcNow;
+                        continue;
+                    }
                     if(await CloseRewardsBeforeVerification(screen,step.Name)) { previous=null; continue; }
                     if(DateTime.UtcNow-lastRecovery>TimeSpan.FromSeconds(30))
                     {
@@ -670,6 +676,11 @@ internal static partial class Program
                         if(Matches(screen,unlock)) { await DismissRepeated(unlock); continue; }
                     }
                     difference=Difference(screen,expected,step);
+                    if(afterStory!=null && difference>=12 && Matches(screen,afterStory))
+                    {
+                        Console.WriteLine($"The story ended before its menu was seen; continuing with {afterStory.Name}.");
+                        stepIndex=selectedSteps.IndexOf(afterStory)-1; previous=null; recovered=true; break;
+                    }
                     if(await DismissTutorialPanel(screen)) { await Task.Delay(400); continue; }
                     if(step.Name=="event-story-first" && !IsEventStoryList(screen))
                     { await OpenEventStories(); lastRetry=DateTime.UtcNow; continue; }
@@ -741,7 +752,7 @@ internal static partial class Program
                 // This step follows only the tutorial download. Tapping the movie opens its skip dialog.
                 if(step.Name.EndsWith("-menu") && step.Name!="event-live-menu" && DateTime.UtcNow-lastMovieTap>TimeSpan.FromSeconds(1))
                 {
-                    await AdvanceNarration(step);
+                    await AdvanceNarration(step,afterStory);
                     lastMovieTap=DateTime.UtcNow;
                     continue;
                 }
@@ -849,9 +860,9 @@ internal static partial class Program
             var existing=await FocusedInput();
             if(existing==null) throw new Exception("Song search is not focused. Nothing entered.");
             if(existing.Length>4096) throw new Exception("Unexpectedly long search field; no submission.");
-            await Shell("input keyevent 123; input keyevent "+string.Join(" ",Enumerable.Repeat("67",existing.Length+4)));
+            if(!await ClearFocusedInput(existing.Length+4)) continue;
             await Shell("input text 0.0000034");
-            if(await FocusedInput()=="0.0000034")
+            if(await SettledInput()=="0.0000034")
             {
                 await File.WriteAllTextAsync("artifacts/song-search-verified.txt",$"Replaced {existing.Length} existing characters; verified exact query 0.0000034. Attempt {attempt+1}.");
                 await Shell("input keyevent 66"); return;
@@ -902,36 +913,53 @@ internal static partial class Program
             await Task.Delay(120);
         }
     }
-    static byte[] EventData(params (short type,short code,int value)[] events)
+    // Kernel input events: a timeval of two longs (8 bytes each for 64-bit Android, 4 for 32-bit), type, code and value.
+    static byte[] EventData(bool wide,params (short type,short code,int value)[] events)
     {
         using var memory=new MemoryStream(); using var writer=new BinaryWriter(memory);
-        foreach(var e in events) { writer.Write(0L); writer.Write(0L); writer.Write(e.type); writer.Write(e.code); writer.Write(e.value); }
+        foreach(var e in events)
+        {
+            if(wide) { writer.Write(0L); writer.Write(0L); } else { writer.Write(0); writer.Write(0); }
+            writer.Write(e.type); writer.Write(e.code); writer.Write(e.value);
+        }
         return memory.ToArray();
     }
-    static string EventBytes(params (short type,short code,int value)[] events)=>string.Concat(EventData(events).Select(b=>"\\"+Convert.ToString(b,8).PadLeft(3,'0')));
+    static string EventBytes(params (short type,short code,int value)[] events)=>string.Concat(EventData(true,events).Select(b=>"\\"+Convert.ToString(b,8).PadLeft(3,'0')));
 
-    // Validated touch devices only; another device or layout is never guessed.
     // LDPlayer (x86_64): /dev/input/event2 spans the 960x540 screen and printf writes whole events.
-    // BlueStacks Air (arm64): "BlueStacks Virtual Touch" spans 0-32767 on both axes and has no pressure axis. Android 13's
-    // printf splits its writes, which the input device rejects, so the events are prepared as files and written with cat.
-    record StoryTouch(string Device,int MaxX,int MaxY,bool Pressure,bool Files);
+    // Other emulators: the touchscreen is the input device with multi-touch X/Y axes. Its range is read from the device:
+    // BlueStacks spans 0-32767, MuMu 540x960 in portrait (rotated by Android; the centre is the centre either way),
+    // MEmu and Nox 960x540. Devices with a tracking id take slot-based (type B) events, Nox's take type A events ended
+    // by SYN_MT_REPORT. printf on newer Android splits its writes, which input devices reject, so the events are prepared
+    // as files and written with cat.
+    record StoryTouch(string Device,int MaxX,int MaxY,bool Pressure,bool Files,bool Tracking=true,bool Wide=true);
     static async Task<StoryTouch> StoryTouchDevice()
     {
         var abi=(await Shell("getprop ro.product.cpu.abi")).Trim();
-        if(abi=="x86_64")
+        if(KindOf(Instance)=="ldplayer" && abi=="x86_64")
         {
             var info=await Shell("getevent -lp /dev/input/event2");
             if(info.Contains("max 959") && info.Contains("max 539") && info.Contains("ABS_MT_TRACKING_ID")) return new("/dev/input/event2",959,539,true,false);
         }
-        else if(abi=="arm64-v8a")
+        // BlueStacks Air (arm64): "BlueStacks Virtual Touch" spans 0-32767 on both axes and has no pressure axis.
+        if(IsBlueStacks)
         {
-            var device=(await Shell("getevent -lp")).Split("add device").FirstOrDefault(d=>Regex.IsMatch(d,"name:\\s*\"BlueStacks Virtual Touch\""));
-            var path=device==null?null:Regex.Match(device,@"^\s*\d+:\s*(/dev/input/event\d+)").Groups[1].Value;
-            if(path is { Length: >0 } && Regex.Matches(device!,@"ABS_MT_POSITION_[XY]\s*: value -?\d+, min 0, max 32767").Count==2) return new(path,32767,32767,false,true);
+            var air=(await Shell("getevent -lp")).Split("add device").FirstOrDefault(d=>Regex.IsMatch(d,"name:\\s*\"BlueStacks Virtual Touch\""));
+            var airPath=air==null?null:Regex.Match(air,@"^\s*\d+:\s*(/dev/input/event\d+)").Groups[1].Value;
+            if(airPath is { Length: >0 } && Regex.Matches(air!,@"ABS_MT_POSITION_[XY]\s*: value -?\d+, min 0, max 32767").Count==2) return new(airPath,32767,32767,false,true);
+            throw new Exception("Continuous touch device differs from the validated BlueStacks layout.");
         }
-        throw new Exception("Continuous touch device differs from the validated LDPlayer and BlueStacks layouts.");
+        foreach(var device in (await Shell("getevent -lp")).Split("add device").Skip(1))
+        {
+            var path=Regex.Match(device,@"^\s*\d+:\s*(/dev/input/event\d+)").Groups[1].Value;
+            int Max(string axis)=>Regex.Match(device,axis+@"\s*: value -?\d+, min 0, max (\d+)") is { Success: true } m?int.Parse(m.Groups[1].Value):0;
+            int maxX=Max("ABS_MT_POSITION_X"),maxY=Max("ABS_MT_POSITION_Y");
+            if(path.Length==0 || maxX<100 || maxY<100 || Regex.IsMatch(device,@"name:\s*""[^""]*[Mm]ouse")) continue;
+            return new(path,maxX,maxY,Max("ABS_MT_PRESSURE")>0,true,device.Contains("ABS_MT_TRACKING_ID"),abi.Contains("64"));
+        }
+        throw new Exception("No multi-touch input device was found; continuous taps were not started.");
     }
-    static async Task AdvanceNarration(Step menu)
+    static async Task AdvanceNarration(Step menu,Step? afterStory=null)
     {
         if(!RapidStorySteps.Contains(menu.Name)) throw new Exception("Rapid dialogue taps are restricted to named story steps.");
         var activity=await Shell(ResumedActivity);
@@ -944,28 +972,58 @@ internal static partial class Program
                 await Task.Delay(350);
                 await Snapshot("artifacts/current.png",true);
                 using var screen=LoadCurrentScreen();
-                if(Matches(screen,menu) || IsMovieConfirm(screen) || IsBaseDataDialog(screen) || IsNameDialog(screen))
+                if(IsStoryChoice(screen)) { Console.WriteLine("Story choice shown; picking the first one."); await Shell($"input tap {StoryChoiceX} 270"); continue; }
+                if(Matches(screen,menu) || IsMovieConfirm(screen) || IsBaseDataDialog(screen) || IsNameDialog(screen) || afterStory!=null && Matches(screen,afterStory))
                 { await Shell("touch /data/local/tmp/sekai-story.stop"); break; }
             }
         }
         finally { await Shell("touch /data/local/tmp/sekai-story.stop"); await tapping; }
     }
+    // Two story choices side by side: white buttons with dark lettering left and right of the centre (the unit intro's
+    // 『セカイのわたし達？』 and 『想いの持ち主達？』). Centre taps miss them and the menu does not open while they are shown,
+    // so the first one is picked; it changes nothing later.
+    const int StoryChoiceX=250;
+    static bool IsStoryChoice(Bitmap screen)
+    {
+        bool Button(int left)
+        {
+            int white=0,total=0,ink=0;
+            for(var y=252;y<=288;y+=2) for(var x=left;x<left+220;x+=4)
+            {
+                total++; var p=screen.GetPixel(x,y);
+                if(p.R>240 && p.G>240 && p.B>240) white++;
+                else if(y is >=262 and <=276 && p.R+p.G+p.B<450) ink++;
+            }
+            return white>=total*7/10 && ink>=15;
+        }
+        return Button(140) && Button(600);
+    }
     static async Task ContinuousStoryTaps(int durationMs=120000)
     {
         if(!RapidStorySteps.Contains(ActiveStep??"")) throw new Exception("Rapid taps blocked outside a story step.");
         var touch=await StoryTouchDevice();
-        // The screen center (480,270) in the device's units.
-        List<(short,short,int)> down=[(3,47,0),(3,57,1),(3,53,480*(touch.MaxX+1)/960),(3,54,270*(touch.MaxY+1)/540)];
-        List<(short,short,int)> up=[(3,47,0),(3,57,-1)];
-        if(touch.Pressure) { down.Add((3,58,1)); up.Add((3,58,0)); }
+        // The screen center (480,270) in the device's units: half of each axis, so a portrait device needs no rotation.
+        List<(short,short,int)> down,up;
+        if(touch.Tracking)
+        {
+            down=[(3,47,0),(3,57,1),(3,53,(touch.MaxX+1)/2),(3,54,(touch.MaxY+1)/2)];
+            up=[(3,47,0),(3,57,-1)];
+            if(touch.Pressure) { down.Add((3,58,1)); up.Add((3,58,0)); }
+        }
+        else
+        {
+            down=[(3,53,(touch.MaxX+1)/2),(3,54,(touch.MaxY+1)/2)];
+            if(touch.Pressure) down.Add((3,58,1));
+            down.Add((0,2,0)); up=[(0,2,0)];
+        }
         down.AddRange([(1,330,1),(0,0,0)]); up.AddRange([(1,330,0),(0,0,0)]);
         string writeDown=$"printf '{EventBytes([..down])}'",writeUp=$"printf '{EventBytes([..up])}'",rest="0.100";
         if(touch.Files)
         {
             // Each cat takes about 13 ms, so the rest after a tap is shorter to keep 8 taps a second (measured on BlueStacks Air).
             rest="0.075";
-            await File.WriteAllBytesAsync("artifacts/story-touch-down.bin",EventData([..down]));
-            await File.WriteAllBytesAsync("artifacts/story-touch-up.bin",EventData([..up]));
+            await File.WriteAllBytesAsync("artifacts/story-touch-down.bin",EventData(touch.Wide,[..down]));
+            await File.WriteAllBytesAsync("artifacts/story-touch-up.bin",EventData(touch.Wide,[..up]));
             await Run(Adb,"-s",Serial,"push","artifacts/story-touch-down.bin","/data/local/tmp/sekai-touch-down.bin");
             await Run(Adb,"-s",Serial,"push","artifacts/story-touch-up.bin","/data/local/tmp/sekai-touch-up.bin");
             writeDown="cat /data/local/tmp/sekai-touch-down.bin"; writeUp="cat /data/local/tmp/sekai-touch-up.bin";
@@ -1161,10 +1219,36 @@ internal static partial class Program
     }
     static async Task<string?> FocusedInput()
     {
-        await Shell("uiautomator dump /sdcard/sekai-window.xml");
-        var xml=XDocument.Parse(await Shell("cat /sdcard/sekai-window.xml"));
-        var inputs=xml.Descendants("node").Where(n=>(string?)n.Attribute("class")=="android.widget.EditText" && (string?)n.Attribute("package")==Package && (string?)n.Attribute("focused")=="true").ToList();
-        return inputs.Count==1?(string?)inputs[0].Attribute("text"):null;
+        // MuMu's Android 15 crashes in uiautomator (exit 139), usually after writing the dump and sometimes before: the
+        // exit code is ignored, the old file is removed first so only a fresh dump is read, and a missing one is retried.
+        for(var attempt=0;;attempt++)
+        {
+            await Shell("rm -f /sdcard/sekai-window.xml; uiautomator dump /sdcard/sekai-window.xml >/dev/null 2>&1; true");
+            XDocument xml;
+            try { xml=XDocument.Parse(await Shell("cat /sdcard/sekai-window.xml 2>/dev/null; true")); }
+            catch(System.Xml.XmlException) when(attempt<4) { await Task.Delay(500); continue; }
+            var inputs=xml.Descendants("node").Where(n=>(string?)n.Attribute("class")=="android.widget.EditText" && (string?)n.Attribute("package")==Package && (string?)n.Attribute("focused")=="true").ToList();
+            return inputs.Count==1?(string?)inputs[0].Attribute("text"):null;
+        }
+    }
+    // Android 15 (MuMu) applies injected keys some time after `input` returns, so a field is read until it stops changing.
+    static async Task<string?> SettledInput()
+    {
+        var last=await FocusedInput();
+        for(var i=0;i<8;i++)
+        {
+            await Task.Delay(300);
+            var now=await FocusedInput();
+            if(now==last) return now;
+            last=now;
+        }
+        return last;
+    }
+    // Clears the focused field (cursor to the end, then backspaces) and waits until it is empty.
+    static async Task<bool> ClearFocusedInput(int length)
+    {
+        await Shell("input keyevent 123; input keyevent "+string.Join(" ",Enumerable.Repeat("67",length)));
+        return await SettledInput()=="";
     }
     static async Task EnterInvitationCode()
     {
@@ -1173,9 +1257,10 @@ internal static partial class Program
         {
             var current=await FocusedInput();
             if(current==null) throw new Exception("Invitation input is not focused. Nothing submitted.");
-            await Shell("input keyevent 123; input keyevent "+string.Join(" ",Enumerable.Repeat("67",32)));
-            await Shell("input text "+InviteCode);
-            var actual=await FocusedInput();
+            if(!await ClearFocusedInput(Math.Max(32,current.Length+4))) { Console.WriteLine($"Field did not clear on attempt {attempt}; retrying."); continue; }
+            if(attempt==1) await Shell("input text "+InviteCode);
+            else await TypeInRuns(InviteCode!);
+            var actual=await SettledInput();
             if(actual!=null && actual==InviteCode && actual.Length==15)
             {
                 await File.WriteAllTextAsync("artifacts/invite-input-verified.txt",$"Verified exact match, 15 characters, attempt {attempt}.");
@@ -1187,6 +1272,25 @@ internal static partial class Program
             Console.WriteLine($"Input mismatch on attempt {attempt}; replacing field.");
         }
         throw new Exception("Invitation input failed verification after 3 attempts. Not submitted.");
+    }
+    // MEmu's IME holds typed letters as composing text and a digit typed next replaces them (abc1 becomes 1). Enter
+    // commits the text and closes the input bar; tapping the field reopens it with the text and the cursor at its end.
+    // So the code is typed up to each letter that a digit follows, committed, and continued in the reopened field.
+    static async Task TypeInRuns(string code)
+    {
+        var field=LoadSteps().Single(s=>s.Name=="invite-code-focus");
+        var start=0;
+        for(var i=0;i<code.Length;i++)
+        {
+            if(i<code.Length-1 && !(char.IsLetter(code[i]) && char.IsDigit(code[i+1]))) continue;
+            await Shell("input text "+code[start..(i+1)]);
+            start=i+1;
+            if(start>=code.Length) break;
+            await Shell("input keyevent 66"); await Task.Delay(1000);
+            await Shell($"input tap {field.X} {field.Y}");
+            for(var wait=0;wait<10 && await FocusedInput()==null;wait++) await Task.Delay(500);
+            await Shell("input keyevent 123");
+        }
     }
     static async Task SubmitInvitation()
     {
@@ -1284,6 +1388,24 @@ internal static partial class Program
                 { var p=screen.GetPixel(x,y); if(p.R>180 && p.G<160 && p.B>90 && p.R>p.G*1.4) pink++; }
             return pink>=100?0:255;
         }
+        // The song shop's filter button sits on a background that differs between emulators (the template's corners
+        // came from LDPlayer); only the round button is compared.
+        if(step.Name=="song-search-focus")
+        {
+            double best=255;
+            for(var dy=-2;dy<=2;dy++) for(var dx=-2;dx<=2;dx++)
+            {
+                long error=0; int samples=0;
+                for(var y=0;y<step.Height;y++) for(var x=0;x<step.Width;x++)
+                {
+                    if((x-step.Width/2)*(x-step.Width/2)+(y-step.Height/2)*(y-step.Height/2)>11*11) continue;
+                    var a=screen.GetPixel(step.Left+dx+x,step.Top+dy+y); var b=expected.GetPixel(x,y);
+                    error+=Math.Abs(a.R-b.R)+Math.Abs(a.G-b.G)+Math.Abs(a.B-b.B); samples+=3;
+                }
+                best=Math.Min(best,(double)error/samples);
+            }
+            return best;
+        }
         // Episode count changes row positions; match only 第1話 over the story list.
         if(step.Name is "event-story-first")
         {
@@ -1337,7 +1459,24 @@ internal static partial class Program
     static async Task<string> RunLong(TimeSpan timeout, string file, params string[] args) => Encoding.UTF8.GetString(await RunBytesWithin(timeout, file, args));
     // ldconsole add/copy exit with the new VM's index, so callers check the VM list instead.
     static async Task RunLdManage(params string[] args) => await RunBytesWithin(TimeSpan.FromMinutes(60), Ld, args, false);
+    // A network VM drops off adb whenever the adb server restarts (an emulator's own tools may restart it, several times
+    // while it boots): the call is repeated after reconnecting, up to three times.
     static async Task<byte[]> RunBytesWithin(TimeSpan timeout, string file, string[] args, bool checkExit=true)
+    {
+        for(var attempt=1;;attempt++)
+        {
+            try { return await RunBytesOnce(timeout,file,args,checkExit); }
+            // A client cut off with the server prints nothing at all; such a call may have run, so input (a tap) is not repeated then.
+            catch(Exception ex) when(attempt<4 && args is ["-s",var serial,..] && Path.GetFileName(file).Contains("adb",StringComparison.OrdinalIgnoreCase)
+                && (ex.Message.TrimEnd().EndsWith("):") && !(args.Length>3 && args[2]=="shell" && args[3].StartsWith("input "))
+                    || new[]{"not found","offline","doesn't match","protocol fault","connection reset","daemon"}.Any(ex.Message.Contains)))
+            {
+                await Task.Delay(attempt*1500);
+                if(serial.StartsWith("127.0.0.1:")) try { await Task.Run(()=>ConnectSerials(file,[serial])); } catch { }
+            }
+        }
+    }
+    static async Task<byte[]> RunBytesOnce(TimeSpan timeout, string file, string[] args, bool checkExit)
     {
         using var process = new Process { StartInfo = new ProcessStartInfo(file) { UseShellExecute=false, RedirectStandardOutput=true, RedirectStandardError=true, CreateNoWindow=true } };
         foreach(var arg in args) process.StartInfo.ArgumentList.Add(arg);

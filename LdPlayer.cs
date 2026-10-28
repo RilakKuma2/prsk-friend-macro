@@ -21,7 +21,8 @@ internal static partial class Program
             }
         }
     }
-    static string LdRequired=>LdFolder??throw new InvalidOperationException(T("LD플레이어를 찾지 못했어요. 화면 위쪽에서 LD플레이어 폴더를 지정하세요.","LDPlayerが見つかりません。画面上部でLDPlayerのフォルダを指定してください。","LDPlayer was not found. Set its folder at the top of the page."));
+    static string LdMissing=>T("LD플레이어를 찾지 못했어요. 화면 위쪽에서 LD플레이어 폴더를 지정하세요.","LDPlayerが見つかりません。画面上部でLDPlayerのフォルダを指定してください。","LDPlayer was not found. Set its folder at the top of the page.");
+    static string LdRequired=>LdFolder??throw new InvalidOperationException(LdMissing);
     static string Ld=>Path.Combine(LdRequired,"ldconsole.exe");
 
     static bool IsLdFolder(string folder)=>File.Exists(Path.Combine(folder,"ldconsole.exe")) && File.Exists(Path.Combine(folder,"adb.exe"));
@@ -76,5 +77,41 @@ internal static partial class Program
         lock(LdLock) LdCache=(DateTime.UtcNow,path);
         lock(InstancesLock) InstanceCache=(DateTime.MinValue,[]);
         return T($"LD플레이어 폴더를 {path}로 정했어요.",$"LDPlayerのフォルダを{path}にしました。",$"LDPlayer folder set to {path}.");
+    }
+
+    static string LdList()
+    {
+        using var process=Process.Start(new ProcessStartInfo(Ld,"list2") { UseShellExecute=false,RedirectStandardOutput=true,CreateNoWindow=true,StandardOutputEncoding=System.Text.Encoding.UTF8 })!;
+        var output=process.StandardOutput.ReadToEnd(); process.WaitForExit(15000);
+        return output;
+    }
+
+    // ldconsole add/copy exit with the new VM's index, so callers check the VM list instead.
+    static async Task<int> AddLd(string name)
+    {
+        var before=(await AllVmRows()).Keys.ToHashSet();
+        await RunLdManage("add","--name",name);
+        return await NewVmIndex(before,name);
+    }
+
+    static async Task<string> PrepareLd(int local,bool running)
+    {
+        var path=LdConfig(local);
+        var config=System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(path))!;
+        var matches=config["advancedSettings.resolution"]?["width"]?.GetValue<int>()==960 && config["advancedSettings.resolution"]?["height"]?.GetValue<int>()==540
+            && config["advancedSettings.resolutionDpi"]?.GetValue<int>()==160 && config["advancedSettings.cpuCount"]?.GetValue<int>()==2 && config["advancedSettings.memorySize"]?.GetValue<int>()==3072 && config["basicSettings.adbDebug"]?.GetValue<int>()==1;
+        // Lighter rendering: 30 FPS without vertical sync (applied while the VM is off).
+        var light=config["basicSettings.fps"]?.GetValue<int>()==LightFps && config["basicSettings.verticalSync"]?.GetValue<bool>()==false;
+        if(!matches && running) throw new Exception("Settings differ on a running instance; stop that instance before prepare.");
+        if(!matches || !light && !running)
+        {
+            var backup=$"artifacts/leidian{local}.before.config";
+            if(!File.Exists(backup)) File.Copy(path,backup);
+            config["advancedSettings.resolution"]=new System.Text.Json.Nodes.JsonObject { ["width"]=960,["height"]=540 };
+            config["advancedSettings.resolutionDpi"]=160; config["advancedSettings.cpuCount"]=2; config["advancedSettings.memorySize"]=3072; config["basicSettings.adbDebug"]=1;
+            config["basicSettings.fps"]=LightFps; config["basicSettings.verticalSync"]=false;
+            await File.WriteAllTextAsync(path,config.ToJsonString(JsonOptions));
+        }
+        return $"960x540 DPI160, 2 CPU, 3072 MB, {LightFps} FPS, ADB enabled. Original config backed up.";
     }
 }

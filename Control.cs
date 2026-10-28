@@ -28,7 +28,7 @@ internal static partial class Program
 
     // A locked instance is left alone: no starts, VM actions, manual input or automatic invite entry. Stop still works.
     static bool IsLocked(int instance)=>File.Exists(Path.Combine(ArtifactsDir(instance),"locked"));
-    static void RequireUnlocked(int instance) { if(IsLocked(instance)) throw new InvalidOperationException(T($"{instance}번은 잠겨 있어요. 잠금을 풀고 다시 시도하세요.",$"{instance}番はロック中です。ロックを解除してからやり直してください。",$"#{instance} is locked. Unlock it and try again.")); }
+    static void RequireUnlocked(int instance) { if(IsLocked(instance)) throw new InvalidOperationException(T($"{VmNo(instance)}번은 잠겨 있어요. 잠금을 풀고 다시 시도하세요.",$"{VmNo(instance)}番はロック中です。ロックを解除してからやり直してください。",$"{VmHash(instance)} is locked. Unlock it and try again.")); }
     static string SetLock(int instance,bool locked)
     {
         RequireInstance(instance);
@@ -36,7 +36,7 @@ internal static partial class Program
         var path=Path.Combine(ArtifactsDir(instance),"locked");
         if(locked) File.WriteAllText(path,DateTimeOffset.Now.ToString("O")); else File.Delete(path);
         AppendControlLog(instance,locked?T("잠금","ロック","Locked"):T("잠금 해제","ロック解除","Unlocked"));
-        return locked?T($"{instance}번을 잠갔어요.",$"{instance}番をロックしました。",$"Locked #{instance}."):T($"{instance}번 잠금을 풀었어요.",$"{instance}番のロックを解除しました。",$"Unlocked #{instance}.");
+        return locked?T($"{VmNo(instance)}번을 잠갔어요.",$"{VmNo(instance)}番をロックしました。",$"Locked {VmHash(instance)}."):T($"{VmNo(instance)}번 잠금을 풀었어요.",$"{VmNo(instance)}番のロックを解除しました。",$"Unlocked {VmHash(instance)}.");
     }
 
     static string MacroExecutable()
@@ -164,6 +164,10 @@ internal static partial class Program
             Instances=AllowedInstances.Select(p=>new { Instance=p.Key,Name=p.Value }),
             Stages=LoadStagesCached().Select(s=>new { s.Name,Title=StageTitle(s),s.Start,s.End }),
             Language,LdPlayer=EmulatorFolder,Emulator=IsBlueStacks?"bluestacks":"ldplayer",
+            // One tab per installed emulator; instance numbers from Base to Base+999 belong to it.
+            Emulators=Emulators.Select(e=>new { e.Key,e.Base,Label=EmulatorLabel(e.Key),Installed=FolderOf(e.Key)!=null,
+                CanManage=CanManageVms(e.Key),CanArrange=CanArrange(e.Key) }),
+            Block=EmulatorBlock,
             Plan=plan.Stages,
             Steps=LoadFlowCached().Select(s=>s.Name),
             Units=UnitLabels(),
@@ -179,8 +183,8 @@ internal static partial class Program
 
     // Each loop registers the invitation once, so the saved codes must allow as many registrations as loops.
     static string? LoopBlocker(int instance,int loops,int? capacity)=>capacity is not { } room || loops<=room?null
-        :room==0?T($"{instance}번은 등록된 초대 코드가 없어 반복할 수 없어요.",$"{instance}番は登録された招待コードがないため繰り返せません。",$"#{instance} has no invitation code, so it cannot loop.")
-        :T($"{instance}번 일회용 코드는 {room}회까지만 반복할 수 있어요.",$"{instance}番の使い捨てコードは{room}回までしか繰り返せません。",$"#{instance} single-use code allows only {room} loops.");
+        :room==0?T($"{VmNo(instance)}번은 등록된 초대 코드가 없어 반복할 수 없어요.",$"{VmNo(instance)}番は登録された招待コードがないため繰り返せません。",$"{VmHash(instance)} has no invitation code, so it cannot loop.")
+        :T($"{VmNo(instance)}번 일회용 코드는 {room}회까지만 반복할 수 있어요.",$"{VmNo(instance)}番の使い捨てコードは{room}回までしか繰り返せません。",$"{VmHash(instance)} single-use code allows only {room} loops.");
     static List<string> BuildWorkerArgs(int instance,StartRequest request,int? inviteCapacity)
     {
         if(request.Code is { Length: >0 } code && !System.Text.RegularExpressions.Regex.IsMatch(code,"^[A-Za-z0-9]{15}$"))
@@ -212,8 +216,8 @@ internal static partial class Program
     static async Task<string> StartWorker(int instance,StartRequest request)
     {
         RequireInstance(instance); RequireUnlocked(instance);
-        if(IsWorkerRunning(instance)) throw new InvalidOperationException(T($"{instance}번은 이미 매크로가 실행 중입니다.",$"{instance}番はすでにマクロ実行中です。",$"#{instance} is already running a macro."));
-        if(PendingWork.ContainsKey(instance)) throw new InvalidOperationException(T($"{instance}번은 다른 요청을 처리 중입니다.",$"{instance}番は別のリクエストを処理中です。",$"#{instance} is busy with another request."));
+        if(IsWorkerRunning(instance)) throw new InvalidOperationException(T($"{VmNo(instance)}번은 이미 매크로가 실행 중입니다.",$"{VmNo(instance)}番はすでにマクロ実行中です。",$"{VmHash(instance)} is already running a macro."));
+        if(PendingWork.ContainsKey(instance)) throw new InvalidOperationException(T($"{VmNo(instance)}번은 다른 요청을 처리 중입니다.",$"{VmNo(instance)}番は別のリクエストを処理中です。",$"{VmHash(instance)} is busy with another request."));
         var invite=request.Invite??"keep";
         if(invite is "set" or "queue") ValidateInvite(request.InviteCode,request.InviteMode,request.InviteLimit);
         else if(invite is not ("keep" or "clear")) throw new ArgumentException(T("초대 코드 설정이 올바르지 않습니다.","招待コードの設定が正しくありません。","Invalid invitation code setting."));
@@ -232,7 +236,7 @@ internal static partial class Program
         else if(invite=="clear") ClearAllInvites(instance);
         if(!await IsVmRunning(instance))
         {
-            if(!request.BootVm) throw new InvalidOperationException(T($"{instance}번 VM이 꺼져 있습니다. 'VM 켜고 시작'을 선택하거나 먼저 VM을 켜세요.",$"{instance}番のVMがオフです。「オフのVMは起動して開始」を選ぶか、先にVMを起動してください。",$"#{instance} VM is off. Turn on 'Boot VMs that are off' or start the VM first."));
+            if(!request.BootVm) throw new InvalidOperationException(T($"{VmNo(instance)}번 VM이 꺼져 있습니다. 'VM 켜고 시작'을 선택하거나 먼저 VM을 켜세요.",$"{VmNo(instance)}番のVMがオフです。「オフのVMは起動して開始」を選ぶか、先にVMを起動してください。",$"{VmHash(instance)} VM is off. Turn on 'Boot VMs that are off' or start the VM first."));
             PendingWork[instance]=T("VM 부팅 대기 중","VM起動待ち","Waiting for VM boot");
             _=Task.Run(async()=>
             {
@@ -240,10 +244,10 @@ internal static partial class Program
                 catch(Exception ex) { AppendControlLog(instance,T("VM 부팅 후 시작 실패: ","VM起動後の開始に失敗: ","Start after VM boot failed: ")+ex.Message); }
                 finally { PendingWork.TryRemove(instance,out _); }
             });
-            return T($"{instance}번 VM을 켜는 중입니다. 부팅이 끝나면 자동으로 시작합니다.",$"{instance}番のVMを起動中です。起動が終わると自動で開始します。",$"Booting #{instance} VM. The macro starts when it is ready.");
+            return T($"{VmNo(instance)}번 VM을 켜는 중입니다. 부팅이 끝나면 자동으로 시작합니다.",$"{VmNo(instance)}番のVMを起動中です。起動が終わると自動で開始します。",$"Booting {VmHash(instance)} VM. The macro starts when it is ready.");
         }
         var pid=SpawnWorker(instance,args);
-        return T($"{instance}번 시작 (PID {pid})",$"{instance}番を開始 (PID {pid})",$"Started #{instance} (PID {pid})");
+        return T($"{VmNo(instance)}번 시작 (PID {pid})",$"{VmNo(instance)}番を開始 (PID {pid})",$"Started {VmHash(instance)} (PID {pid})");
     }
 
     static int SpawnWorker(int instance,List<string> args)
@@ -277,7 +281,7 @@ internal static partial class Program
         File.WriteAllText(Path.Combine(dir,"macro.stop"),"stop");
         File.WriteAllText(Path.Combine(dir,"story.stop"),"stop");
         AppendControlLog(instance,T("중지 요청","停止リクエスト","Stop requested"));
-        return T($"{instance}번 중지 요청. 현재 단계가 끝나는 지점에서 멈추며 게임과 계정은 유지됩니다.",$"{instance}番に停止をリクエストしました。現在の段階が終わった時点で止まり、ゲームとアカウントはそのままです。",$"Stop requested for #{instance}. It stops when the current stage ends; the game and account are kept.");
+        return T($"{VmNo(instance)}번 중지 요청. 현재 단계가 끝나는 지점에서 멈추며 게임과 계정은 유지됩니다.",$"{VmNo(instance)}番に停止をリクエストしました。現在の段階が終わった時点で止まり、ゲームとアカウントはそのままです。",$"Stop requested for {VmHash(instance)}. It stops when the current stage ends; the game and account are kept.");
     }
 
     static string KillWorker(int instance)
@@ -291,9 +295,9 @@ internal static partial class Program
             if(!process.ProcessName.Equals("SekaiMacro",StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException(T("기록된 PID가 매크로 프로세스가 아닙니다.","記録されたPIDはマクロのプロセスではありません。","The recorded PID is not a macro process."));
             process.Kill(true);
         }
-        catch(ArgumentException) { return T($"{instance}번 작업은 이미 종료되었습니다.",$"{instance}番の作業はすでに終了しています。",$"#{instance} job has already ended."); }
+        catch(ArgumentException) { return T($"{VmNo(instance)}번 작업은 이미 종료되었습니다.",$"{VmNo(instance)}番の作業はすでに終了しています。",$"{VmHash(instance)} job has already ended."); }
         AppendControlLog(instance,T("강제 종료","強制終了","Force stopped"));
-        return T($"{instance}번 매크로를 강제 종료했습니다.",$"{instance}番のマクロを強制終了しました。",$"Force stopped the #{instance} macro.");
+        return T($"{VmNo(instance)}번 매크로를 강제 종료했습니다.",$"{VmNo(instance)}番のマクロを強制終了しました。",$"Force stopped the {VmHash(instance)} macro.");
     }
 
     static async Task BootVm(int instance)
@@ -309,15 +313,15 @@ internal static partial class Program
             var deadline=DateTime.UtcNow.AddMinutes(3); var booted=false;
             while(DateTime.UtcNow<deadline && !booted)
             {
-                try { await ConnectVm(instance); booted=(await Run(Adb,"-s",SerialOf(instance),"shell","getprop sys.boot_completed")).Trim()=="1"; }
+                try { await ConnectVm(instance); booted=(await Run(AdbOf(instance),"-s",SerialOf(instance),"shell","getprop sys.boot_completed")).Trim()=="1"; }
                 catch { }
                 if(!booted) await Task.Delay(2000);
             }
             if(!booted) break;
             VmListCache=(DateTime.MinValue,[]);
-            if(await LiveResolutionOk(SerialOf(instance))) { ScheduleArrange(); return; }
+            if(await LiveResolutionOk(instance)) { ScheduleArrange(); return; }
             // BlueStacks settings are changed in BlueStacks itself, so a restart would not fix them.
-            if(attempt>0 || IsBlueStacks) throw new Exception(T("VM 해상도가 960x540 DPI160으로 맞춰지지 않아요.","VMの解像度が960x540 DPI160になりません。","The VM resolution does not become 960x540 DPI160."));
+            if(attempt>0 || !FixesSettings(instance)) throw new Exception(T("VM 해상도가 960x540 DPI160으로 맞춰지지 않아요.","VMの解像度が960x540 DPI160になりません。","The VM resolution does not become 960x540 DPI160."));
             AppendControlLog(instance,T("해상도가 달라서 설정을 고치고 VM을 다시 켜요.","解像度が違うため設定を直してVMを再起動します。","Resolution differs; fixing settings and restarting the VM."));
             await QuitVm(instance);
         }
@@ -327,11 +331,11 @@ internal static partial class Program
     static async Task<string> VmAction(int instance,string action)
     {
         RequireInstance(instance); RequireUnlocked(instance);
-        if(PendingWork.ContainsKey(instance)) throw new InvalidOperationException(T($"{instance}번은 다른 요청을 처리 중입니다.",$"{instance}番は別のリクエストを処理中です。",$"#{instance} is busy with another request."));
+        if(PendingWork.ContainsKey(instance)) throw new InvalidOperationException(T($"{VmNo(instance)}번은 다른 요청을 처리 중입니다.",$"{VmNo(instance)}番は別のリクエストを処理中です。",$"{VmHash(instance)} is busy with another request."));
         switch(action)
         {
             case "launch":
-                if(await IsVmRunning(instance)) return T($"{instance}번 VM은 이미 켜져 있습니다.",$"{instance}番のVMはすでに起動しています。",$"#{instance} VM is already on.");
+                if(await IsVmRunning(instance)) return T($"{VmNo(instance)}번 VM은 이미 켜져 있습니다.",$"{VmNo(instance)}番のVMはすでに起動しています。",$"{VmHash(instance)} VM is already on.");
                 PendingWork[instance]=T("VM 켜는 중","VM起動中","Booting VM");
                 _=Task.Run(async()=>
                 {
@@ -339,21 +343,21 @@ internal static partial class Program
                     catch(Exception ex) { AppendControlLog(instance,T("VM 켜기 실패: ","VM起動失敗: ","VM boot failed: ")+ex.Message); }
                     finally { PendingWork.TryRemove(instance,out _); }
                 });
-                return T($"{instance}번 VM을 켜는 중입니다.",$"{instance}番のVMを起動中です。",$"Booting #{instance} VM.");
+                return T($"{VmNo(instance)}번 VM을 켜는 중입니다.",$"{VmNo(instance)}番のVMを起動中です。",$"Booting {VmHash(instance)} VM.");
             case "quit":
                 if(IsWorkerRunning(instance)) StopWorker(instance);
                 await VmQuitRequest(instance);
                 VmListCache=(DateTime.MinValue,[]);
-                return T($"{instance}번 VM을 껐습니다.",$"{instance}番のVMを停止しました。",$"Turned off #{instance} VM.");
+                return T($"{VmNo(instance)}번 VM을 껐습니다.",$"{VmNo(instance)}番のVMを停止しました。",$"Turned off {VmHash(instance)} VM.");
             case "reboot":
                 if(IsWorkerRunning(instance)) throw new InvalidOperationException(T("매크로 실행 중에는 재부팅할 수 없습니다. 먼저 중지하세요.","マクロ実行中は再起動できません。先に停止してください。","Cannot reboot while a macro is running. Stop it first."));
                 await VmReboot(instance);
                 VmListCache=(DateTime.MinValue,[]);
-                return T($"{instance}번 VM을 재부팅합니다.",$"{instance}番のVMを再起動します。",$"Rebooting #{instance} VM.");
+                return T($"{VmNo(instance)}번 VM을 재부팅합니다.",$"{VmNo(instance)}番のVMを再起動します。",$"Rebooting {VmHash(instance)} VM.");
             case "launch-game":
                 await RequireVm(instance);
-                await Run(Adb,"-s",SerialOf(instance),"shell",$"monkey -p {Package} -c android.intent.category.LAUNCHER 1");
-                return T($"{instance}번 게임을 실행했습니다.",$"{instance}番でゲームを起動しました。",$"Launched the game on #{instance}.");
+                await Run(AdbOf(instance),"-s",SerialOf(instance),"shell",$"monkey -p {Package} -c android.intent.category.LAUNCHER 1");
+                return T($"{VmNo(instance)}번 게임을 실행했습니다.",$"{VmNo(instance)}番でゲームを起動しました。",$"Launched the game on {VmHash(instance)}.");
             default: throw new ArgumentException(T("알 수 없는 VM 동작: ","不明なVM操作: ","Unknown VM action: ")+action);
         }
     }
@@ -361,13 +365,13 @@ internal static partial class Program
     static async Task RequireVm(int instance)
     {
         RequireInstance(instance);
-        if(!await IsVmRunning(instance)) throw new InvalidOperationException(T($"{instance}번 VM이 꺼져 있습니다.",$"{instance}番のVMがオフです。",$"#{instance} VM is off."));
+        if(!await IsVmRunning(instance)) throw new InvalidOperationException(T($"{VmNo(instance)}번 VM이 꺼져 있습니다.",$"{VmNo(instance)}番のVMがオフです。",$"{VmHash(instance)} VM is off."));
     }
 
     static async Task<byte[]> CaptureScreen(int instance,bool save)
     {
         await RequireVm(instance);
-        var bytes=await RunBytes(Adb,"-s",SerialOf(instance),"exec-out","screencap","-p");
+        var bytes=await RunBytes(AdbOf(instance),"-s",SerialOf(instance),"exec-out","screencap","-p");
         if(bytes.Length<8 || bytes[0]!=137 || bytes[1]!=80) throw new Exception(T("화면 캡쳐 결과가 올바르지 않습니다.","画面キャプチャの結果が正しくありません。","The screen capture was invalid."));
         if(save)
         {
@@ -397,7 +401,7 @@ internal static partial class Program
         FileStream hold;
         try { hold=new FileStream(path,FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None); }
         catch(IOException) { throw new InvalidOperationException(T("매크로 실행 중에는 직접 조작할 수 없습니다. 먼저 중지하세요.","マクロ実行中は手動操作できません。先に停止してください。","Manual control is unavailable while a macro runs. Stop it first.")); }
-        using(hold) await Run(Adb,"-s",SerialOf(instance),"shell",command);
+        using(hold) await Run(AdbOf(instance),"-s",SerialOf(instance),"shell",command);
         return "ok";
     }
 
@@ -416,17 +420,17 @@ internal static partial class Program
     {
         RequireInstance(instance);
         var dir=ArtifactsDir(instance);
-        var loop=ReadLoop(dir)??throw new InvalidOperationException(T($"{instance}번은 반복 기록이 없어요. 처음부터 실행으로 시작하세요.",$"{instance}番には繰り返しの記録がありません。最初から実行で始めてください。",$"#{instance} has no loop record. Start it with a run from scratch."));
+        var loop=ReadLoop(dir)??throw new InvalidOperationException(T($"{VmNo(instance)}번은 반복 기록이 없어요. 처음부터 실행으로 시작하세요.",$"{VmNo(instance)}番には繰り返しの記録がありません。最初から実行で始めてください。",$"{VmHash(instance)} has no loop record. Start it with a run from scratch."));
         if(total<loop.Index || total>99) throw new ArgumentException(T($"회차는 {loop.Index}~99회로 정할 수 있어요.",$"周回は{loop.Index}〜99回にできます。",$"Loops can be set from {loop.Index} to 99."));
         // Loops after this one each need a registration, and so does this one until it has registered.
         var pending=CurrentLoopInvite(dir)?.Result=="registered"?0:1;
         if(total>loop.Index && InviteCapacity(dir) is { } room && total-loop.Index+pending>room)
             throw new InvalidOperationException(room-pending<=0
-                ?T($"{instance}번은 남은 초대 코드가 없어 회차를 늘릴 수 없어요.",$"{instance}番は残りの招待コードがないため周回を増やせません。",$"#{instance} has no invitation code left, so loops cannot be added.")
-                :T($"{instance}번 일회용 코드로는 총 {loop.Index+room-pending}회까지 돌 수 있어요.",$"{instance}番の使い捨てコードでは合計{loop.Index+room-pending}回まで回せます。",$"#{instance} single-use code allows {loop.Index+room-pending} loops in total."));
+                ?T($"{VmNo(instance)}번은 남은 초대 코드가 없어 회차를 늘릴 수 없어요.",$"{VmNo(instance)}番は残りの招待コードがないため周回を増やせません。",$"{VmHash(instance)} has no invitation code left, so loops cannot be added.")
+                :T($"{VmNo(instance)}번 일회용 코드로는 총 {loop.Index+room-pending}회까지 돌 수 있어요.",$"{VmNo(instance)}番の使い捨てコードでは合計{loop.Index+room-pending}回まで回せます。",$"{VmHash(instance)} single-use code allows {loop.Index+room-pending} loops in total."));
         WriteJsonAtomic(Path.Combine(dir,LoopFile),loop with { Total=total });
         AppendControlLog(instance,T($"반복 회차 변경: {loop.Total} → {total}",$"周回数を変更: {loop.Total} → {total}",$"Loops changed: {loop.Total} → {total}"));
-        return T($"{instance}번 반복을 총 {total}회로 바꿨어요.",$"{instance}番の繰り返しを合計{total}回にしました。",$"#{instance} now runs {total} loops in total.");
+        return T($"{VmNo(instance)}번 반복을 총 {total}회로 바꿨어요.",$"{VmNo(instance)}番の繰り返しを合計{total}回にしました。",$"{VmHash(instance)} now runs {total} loops in total.");
     }
 
     // Changes the registration count of the active single-use code (index -1) or a queued one; never below what is already used.
@@ -452,7 +456,7 @@ internal static partial class Program
         AppendControlLog(instance,T($"초대 코드 횟수 변경 ({label})",$"招待コードの回数を変更 ({label})",$"Invitation code uses changed ({label})"));
         // Lowering the active code to what it has already used retires it and starts the next queued code.
         if(!IsWorkerRunning(instance)) { RetireUsedInvite(dir); PromoteQueuedInvite(dir); }
-        return T($"{instance}번 초대 코드를 {label}로 바꿨어요.",$"{instance}番の招待コードを{label}にしました。",$"Set #{instance} invitation code to {label}.");
+        return T($"{VmNo(instance)}번 초대 코드를 {label}로 바꿨어요.",$"{VmNo(instance)}番の招待コードを{label}にしました。",$"Set {VmHash(instance)} invitation code to {label}.");
     }
 
     static object GetInvite(int instance)
@@ -487,7 +491,7 @@ internal static partial class Program
         RequireInstance(instance);
         ValidateInvite(code,mode,limit);
         SaveInvite(instance,code!.Trim(),mode!,limit);
-        return await TryAutoInvite(instance)??T($"{instance}번 초대 코드를 저장했습니다.",$"{instance}番の招待コードを保存しました。",$"Saved the invitation code for #{instance}.");
+        return await TryAutoInvite(instance)??T($"{VmNo(instance)}번 초대 코드를 저장했습니다.",$"{VmNo(instance)}番の招待コードを保存しました。",$"Saved the invitation code for {VmHash(instance)}.");
     }
 
     static void SaveInvite(int instance,string code,string mode,int? limit)
@@ -503,8 +507,8 @@ internal static partial class Program
         RequireInstance(instance);
         ValidateInvite(code,mode,limit);
         var position=EnqueueInvite(instance,code!.Trim(),mode!,limit);
-        if(position==0) return await TryAutoInvite(instance)??T($"{instance}번에 바로 쓸 코드로 저장했어요.",$"{instance}番ですぐ使うコードとして保存しました。",$"Saved as the active code for #{instance}.");
-        return T($"{instance}번 대기열 {position}번째에 추가했어요.",$"{instance}番の待機列の{position}番目に追加しました。",$"Added to #{instance} queue at position {position}.");
+        if(position==0) return await TryAutoInvite(instance)??T($"{VmNo(instance)}번에 바로 쓸 코드로 저장했어요.",$"{VmNo(instance)}番ですぐ使うコードとして保存しました。",$"Saved as the active code for {VmHash(instance)}.");
+        return T($"{VmNo(instance)}번 대기열 {position}번째에 추가했어요.",$"{VmNo(instance)}番の待機列の{position}番目に追加しました。",$"Added to {VmHash(instance)} queue at position {position}.");
     }
 
     // Returns the queue position, or 0 when nothing was active and the code was activated at once.
@@ -529,7 +533,7 @@ internal static partial class Program
         });
         if(!removed) throw new ArgumentException(T("대기열에 없는 항목이에요.","待機列にない項目です。","That item is not in the queue."));
         AppendControlLog(instance,T("초대 코드 대기열에서 삭제","招待コードを待機列から削除","Invitation code removed from queue"));
-        return T($"{instance}번 대기열에서 뺐어요.",$"{instance}番の待機列から外しました。",$"Removed from #{instance} queue.");
+        return T($"{VmNo(instance)}번 대기열에서 뺐어요.",$"{VmNo(instance)}番の待機列から外しました。",$"Removed from {VmHash(instance)} queue.");
     }
 
     // Clearing the active code moves the next queued code up.
@@ -539,7 +543,7 @@ internal static partial class Program
         var dir=ArtifactsDir(instance);
         WithInviteLock(dir,()=>{ File.Delete(Path.Combine(dir,InviteFile)); return 0; });
         AppendControlLog(instance,T("초대 코드 삭제","招待コードを削除","Invitation code cleared"));
-        return PromoteQueuedInvite(dir)!=null?T($"{instance}번 코드를 지우고 대기열의 다음 코드로 바꿨어요.",$"{instance}番のコードを消して待機列の次のコードに切り替えました。",$"Cleared #{instance} code and switched to the next queued code."):T($"{instance}번 초대 코드를 지웠습니다.",$"{instance}番の招待コードを消しました。",$"Cleared the invitation code for #{instance}.");
+        return PromoteQueuedInvite(dir)!=null?T($"{VmNo(instance)}번 코드를 지우고 대기열의 다음 코드로 바꿨어요.",$"{VmNo(instance)}番のコードを消して待機列の次のコードに切り替えました。",$"Cleared {VmHash(instance)} code and switched to the next queued code."):T($"{VmNo(instance)}번 초대 코드를 지웠습니다.",$"{VmNo(instance)}番の招待コードを消しました。",$"Cleared the invitation code for {VmHash(instance)}.");
     }
 
     static void ClearAllInvites(int instance)
@@ -575,7 +579,7 @@ internal static partial class Program
         if(!await IsVmRunning(instance)) return null;
         lock(AutoInviteAttempts) if(!AutoInviteAttempts.Add($"{instance}|{invite.Code}|{Str(checkpoint,"Time")}")) return null;
         var pid=SpawnWorker(instance,["register-invite","--instance",instance.ToString(),"--background"]);
-        return T($"{instance}번 초대 대기 화면에서 코드를 입력합니다. (PID {pid})",$"{instance}番の招待待ち画面でコードを入力します。(PID {pid})",$"Entering the code on #{instance} invitation screen. (PID {pid})");
+        return T($"{VmNo(instance)}번 초대 대기 화면에서 코드를 입력합니다. (PID {pid})",$"{VmNo(instance)}番の招待待ち画面でコードを入力します。(PID {pid})",$"Entering the code on {VmHash(instance)} invitation screen. (PID {pid})");
     }
 
     static int InviteWatcherStarted;
@@ -586,13 +590,13 @@ internal static partial class Program
     {
         if(!await IsVmRunning(instance)) { ResolutionChecked.Remove(instance); SeenOff.Add(instance); return; }
         if(ResolutionChecked.Contains(instance) || IsLocked(instance) || IsWorkerRunning(instance) || PendingWork.ContainsKey(instance) || ProvisionUses(instance)) return;
-        try { if((await Run(Adb,"-s",SerialOf(instance),"shell","getprop sys.boot_completed")).Trim()!="1") return; }
+        try { if((await Run(AdbOf(instance),"-s",SerialOf(instance),"shell","getprop sys.boot_completed")).Trim()!="1") return; }
         catch { return; }
         ResolutionChecked.Add(instance);
         // Only VMs that turned on while the control panel runs; restarting the panel leaves windows where they are.
         if(SeenOff.Remove(instance)) ScheduleArrange();
-        if(await LiveResolutionOk(SerialOf(instance))) return;
-        if(IsBlueStacks)
+        if(await LiveResolutionOk(instance)) return;
+        if(!FixesSettings(instance))
         {
             AppendControlLog(instance,T("해상도가 960x540 DPI160이 아니에요. 블루스택 설정(디스플레이)에서 맞춰주세요.","解像度が960x540 DPI160ではありません。BlueStacksの設定(ディスプレイ)で合わせてください。","The resolution is not 960x540 DPI160. Set it in BlueStacks settings (Display)."));
             return;
