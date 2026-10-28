@@ -210,6 +210,7 @@ internal static partial class Program
                     From="event-stories-complete";
                 }
                 await UntilRewards(()=>Tutorial());
+                if(ProgressStage!=null) await WriteProgress(ProgressStage,StageIncomplete?"story-incomplete":"complete");
                 await ContinueLoops();
                 return 0;
             }
@@ -270,12 +271,19 @@ internal static partial class Program
             }
             Console.WriteLine("Stage: "+name);
             StageIncomplete=false;
-            await File.WriteAllTextAsync("artifacts/progress.json",JsonSerializer.Serialize(new { Stage=name, Status="running", Time=DateTimeOffset.Now },JsonOptions));
+            await WriteProgress(name,"running");
             var rewarded=await UntilRewards(()=>Tutorial(StepsForStage(name)));
-            await File.WriteAllTextAsync("artifacts/progress.json",JsonSerializer.Serialize(new { Stage=name, Status=StageIncomplete?"story-incomplete":"complete", Time=DateTimeOffset.Now },JsonOptions));
+            await WriteProgress(name,StageIncomplete?"story-incomplete":"complete");
             if(StageIncomplete || rewarded) return;
         }
     }
+    static string? ProgressStage;
+    static Task WriteProgress(string stage,string status)
+    {
+        ProgressStage=stage;
+        return File.WriteAllTextAsync("artifacts/progress.json",JsonSerializer.Serialize(new { Stage=stage, Status=status, Time=DateTimeOffset.Now },JsonOptions));
+    }
+    static string? StageOf(string step)=>LoadStages().Select(s=>s.Name).FirstOrDefault(name=>StepsForStage(name).Any(s=>s.Name==step));
     static List<Step> EffectiveSteps(IEnumerable<Step> steps)
     {
         if(InviteCode!=null) return steps.ToList();
@@ -546,6 +554,8 @@ internal static partial class Program
                 if(step.Name==invitationStart) SkipInvitation=!RefreshInviteCode();
                 if(SkipInvitation) { if(step.Name==invitationStart) Console.WriteLine("No invitation code: invitation stage skipped."); continue; }
             }
+            // A resumed run goes on through the later stages: keep progress.json, whose stage the panel shows, current.
+            if(stageSteps==null && StageOf(step.Name) is { } stepStage && stepStage!=ProgressStage) await WriteProgress(stepStage,"running");
             await SaveCheckpoint(step.Name,"waiting");
             if(HomeGuidesCompleted && (step.Name.StartsWith("home-guide-") || step.Name is "login-bonus" or "campaign-bonus" or "beginner-bonus" or "gift-open"))
             { await SaveCheckpoint(step.Name,"executed"); continue; }
@@ -1233,7 +1243,7 @@ internal static partial class Program
     }
     static double Difference(Bitmap screen,Bitmap expected,Step step)
     {
-        if(step.Name is "song-search-query" or "live-song-query" && IsTextInputBar(screen)) return 0;
+        if(step.Action is "song-query" or "invite-code" && IsTextInputBar(screen)) return 0;
         if(step.Name=="event-stories-complete") return IsEventStoryList(screen)?0:255;
         if(step.Name=="event-intro-reward") return IsStoryReward(screen)?0:255;
         if(step.Name=="result-story-unlocks")
