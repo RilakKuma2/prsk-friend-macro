@@ -187,7 +187,7 @@ internal static partial class Program
                 {
                     if(!int.TryParse(args.ElementAtOrDefault(loopsOption+1),out LoopTotal) || LoopTotal<1 || LoopTotal>99) throw new Exception("--loops must be 1-99.");
                     if(LoopTotal>1 && args[0]!="run") throw new Exception("--loops requires run.");
-                    if(LoopTotal>1 && (!RefreshInviteCode() || InviteMode!="permanent")) throw new Exception("Repeating requires a permanent invitation code in artifacts/invite.json. No changes made.");
+                    if(LoopTotal>1 && (!RefreshInviteCode() || InviteCapacity("artifacts")<LoopTotal)) throw new Exception("Repeating needs invitation codes in artifacts/invite.json for every loop: a permanent code, or single-use codes for as many loops. No changes made.");
                 }
                 if(!RefreshInviteCode()) Console.WriteLine("No invitation code yet; artifacts/invite.json is checked again when the invitation step is reached.");
             }

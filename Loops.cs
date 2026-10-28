@@ -49,7 +49,7 @@ internal static partial class Program
     {
         if(StopRequested || File.Exists("artifacts/macro.stop")) return "stop requested";
         if(StageIncomplete) return "event stories incomplete";
-        if(!RefreshInviteCode() || InviteMode!="permanent") return "no permanent invitation code";
+        if(!RefreshInviteCode()) return "no invitation code left";
         if(CurrentLoopInvite("artifacts")?.Result!="registered") return "invitation was not registered in this loop";
         return null;
     }

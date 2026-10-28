@@ -3,8 +3,8 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 
 // Per-instance invitation codes (artifacts/invite.json) and the nickname captures taken at registration.
-// "once" codes are cleared after one registration; "permanent" codes stay until their limit (at most 10).
-// Further codes wait in artifacts/invite-queue.json and the next one is activated when the current one is used up.
+// A "permanent" code is used for every loop until it is deleted; a "once" code is cleared after its set number of
+// registrations (1 unless set, at most 10). Further codes wait in artifacts/invite-queue.json and the next one is activated when the current one is used up.
 internal static partial class Program
 {
     record InviteSetting(string Code,string Mode,DateTimeOffset Updated,int? Limit=null);
@@ -16,18 +16,7 @@ internal static partial class Program
     const string InviteQueueFile="invite-queue.json";
     const string InviteHistoryFile="invites/history.json";
 
-    // The game accepts at most 10 registrations per invitation code; histories of every instance count.
-    const int MaxInviteUses=10;
-    static int InviteUses(string code)=>AllowedInstances.Keys.Sum(n=>ReadInviteHistory(ArtifactsDir(n)).Count(r=>r.Code==code && r.Result=="registered"));
-    static void ClearExhaustedCode(string code)
-    {
-        foreach(var n in AllowedInstances.Keys)
-            if(ReadInviteSetting(ArtifactsDir(n))?.Code==code)
-            {
-                File.Delete(Path.Combine(ArtifactsDir(n),InviteFile));
-                AppendControlLog(n,T($"초대 코드가 {MaxInviteUses}번 등록되어 지웠어요.",$"招待コードが{MaxInviteUses}回登録されたため消しました。",$"Cleared the invitation code after {MaxInviteUses} registrations."));
-            }
-    }
+    const int MaxOnceUses=10;
 
     static bool ValidInviteCode(string? code)=>Regex.IsMatch(code??"","^[A-Za-z0-9]{15}$");
 
@@ -43,9 +32,24 @@ internal static partial class Program
         catch { return null; }
     }
 
-    static int InviteLimit(InviteSetting setting)=>setting.Mode=="once"?1:Math.Clamp(setting.Limit??MaxInviteUses,1,MaxInviteUses);
+    // Registrations a code serves: null for a permanent code, which has no limit.
+    static int? InviteLimit(InviteSetting setting)=>setting.Mode=="once"?Math.Clamp(setting.Limit??1,1,MaxOnceUses):null;
     // Registrations made in this instance since the code became active.
     static int ActiveInviteUses(string artifacts,InviteSetting setting)=>ReadInviteHistory(artifacts).Count(r=>r.Code==setting.Code && r.Result=="registered" && r.Time>=setting.Updated);
+    // Registrations the active code and the queue still allow: null once a permanent code is among them.
+    static int? InviteCapacity(InviteSetting? active,int used,IEnumerable<InviteSetting> queue)
+    {
+        var codes=(active==null?queue:queue.Prepend(active)).ToList();
+        return codes.Any(s=>s.Mode=="permanent")?null:Math.Max(0,codes.Sum(s=>InviteLimit(s)!.Value)-used);
+    }
+    static int? InviteCapacity(string artifacts)
+    {
+        var active=ReadInviteSetting(artifacts);
+        return InviteCapacity(active,active==null?0:ActiveInviteUses(artifacts,active),ReadInviteQueue(artifacts));
+    }
+    // Player names read from the confirmation dialog when a code was entered, on any instance: the code's owner.
+    static Dictionary<string,string> InviteOwners()=>AllowedInstances.Keys.SelectMany(n=>ReadInviteHistory(ArtifactsDir(n)))
+        .Where(r=>r.Nickname is { Length: >0 }).OrderBy(r=>r.Time).GroupBy(r=>r.Code).ToDictionary(g=>g.Key,g=>g.Last().Nickname!);
 
     static List<InviteSetting> ReadInviteQueue(string artifacts)
     {
@@ -79,13 +83,12 @@ internal static partial class Program
         }
     }
 
-    // Clears the active code once it reached its own limit or the game's 10-registration cap.
+    // Clears the active single-use code once it served its set number of registrations.
     static string? RetireUsedInvite(string artifacts)=>WithInviteLock(artifacts,()=>
     {
         var setting=ReadInviteSetting(artifacts);
-        if(setting==null) return null;
-        if(InviteUses(setting.Code) is var total && total>=MaxInviteUses) { ClearExhaustedCode(setting.Code); return $"Invitation code reached {total} registrations and was cleared."; }
-        if(ActiveInviteUses(artifacts,setting) is var used && used>=InviteLimit(setting))
+        if(setting==null || InviteLimit(setting) is not { } limit) return null;
+        if(ActiveInviteUses(artifacts,setting) is var used && used>=limit)
         {
             File.Delete(Path.Combine(artifacts,InviteFile));
             return $"Invitation code used {used} time(s) as set and cleared.";
@@ -97,18 +100,16 @@ internal static partial class Program
     {
         if(ReadInviteSetting(artifacts)!=null) return null;
         var queue=ReadInviteQueue(artifacts);
-        InviteSetting? next=null;
-        while(queue.Count>0 && next==null)
-        {
-            var item=queue[0]; queue.RemoveAt(0);
-            if(InviteUses(item.Code)<MaxInviteUses) next=item with { Updated=DateTimeOffset.Now };
-        }
+        if(queue.Count==0) return null;
+        var next=queue[0] with { Updated=DateTimeOffset.Now };
+        queue.RemoveAt(0);
         WriteInviteQueue(artifacts,queue);
-        if(next!=null) WriteInviteSetting(artifacts,next);
+        WriteInviteSetting(artifacts,next);
         return next;
     });
 
-    // Offline check in a temporary folder: a limited code retires after its registrations and the queue advances.
+    // Offline check in a temporary folder: a single-use code retires after its registrations, the queue advances and a
+    // permanent code is never retired.
     static void VerifyInviteQueue()
     {
         var dir=Path.Combine(Path.GetTempPath(),"sekai-invite-check-"+Environment.ProcessId);
@@ -116,7 +117,7 @@ internal static partial class Program
         try
         {
             var start=DateTimeOffset.Now.AddMinutes(-5);
-            WriteInviteSetting(dir,new InviteSetting("CHECKAAAAAAAAA1","permanent",start,2));
+            WriteInviteSetting(dir,new InviteSetting("CHECKAAAAAAAAA1","once",start,2));
             WriteInviteQueue(dir,[new InviteSetting("CHECKBBBBBBBBB2","once",start),new InviteSetting("CHECKCCCCCCCCC3","permanent",start,5)]);
             void Register(string code,int minutes)
             {
@@ -124,7 +125,9 @@ internal static partial class Program
                 history.Add(new InviteRecord(DateTimeOffset.Now.AddMinutes(minutes),code,"",null,null,"registered"));
                 WriteJsonAtomic(Path.Combine(dir,InviteHistoryFile),history);
             }
-            string Active()=>ReadInviteSetting(dir) is { } s?$"{s.Code[..6]}({ActiveInviteUses(dir,s)}/{InviteLimit(s)})":"none";
+            string Active()=>ReadInviteSetting(dir) is { } s?$"{s.Code[..6]}({ActiveInviteUses(dir,s)}/{InviteLimit(s)?.ToString()??"∞"})":"none";
+            if(InviteCapacity(dir)!=null) throw new Exception("A queued permanent code must make the capacity unlimited.");
+            if(InviteCapacity(new InviteSetting("CHECKAAAAAAAAA1","once",start,2),1,[new InviteSetting("CHECKBBBBBBBBB2","once",start,3)])!=4) throw new Exception("Single-use capacity is not the remaining registrations.");
             Register("CHECKAAAAAAAAA1",-10);
             if(RetireUsedInvite(dir)!=null) throw new Exception("A registration before activation was counted.");
             Register("CHECKAAAAAAAAA1",-1);
@@ -133,7 +136,9 @@ internal static partial class Program
             if(RetireUsedInvite(dir)==null || PromoteQueuedInvite(dir)?.Code!="CHECKBBBBBBBBB2") throw new Exception("Limit 2 did not advance to the once code: "+Active());
             Register("CHECKBBBBBBBBB2",1);
             if(RetireUsedInvite(dir)==null || PromoteQueuedInvite(dir)?.Code!="CHECKCCCCCCCCC3" || ReadInviteQueue(dir).Count!=0) throw new Exception("Once code did not advance: "+Active());
-            Console.WriteLine($"Invite queue verified: limit 2 -> once -> limit 5, earlier registrations ignored; active {Active()}.");
+            for(var i=0;i<12;i++) Register("CHECKCCCCCCCCC3",2);
+            if(RetireUsedInvite(dir)!=null || ReadInviteSetting(dir)?.Code!="CHECKCCCCCCCCC3") throw new Exception("A permanent code was retired: "+Active());
+            Console.WriteLine($"Invite queue verified: once x2 -> once -> permanent, earlier registrations ignored, permanent kept after 12; active {Active()}.");
         }
         finally { Directory.Delete(dir,true); }
     }
@@ -150,7 +155,7 @@ internal static partial class Program
         if(InviteMode=="cli") return true;
         if(RetireUsedInvite("artifacts") is { } note) Console.WriteLine(note);
         var saved=ReadInviteSetting("artifacts");
-        if(saved==null && PromoteQueuedInvite("artifacts") is { } next) { saved=next; Console.WriteLine($"Next queued invitation code activated ({next.Mode}, up to {InviteLimit(next)})."); }
+        if(saved==null && PromoteQueuedInvite("artifacts") is { } next) { saved=next; Console.WriteLine($"Next queued invitation code activated ({next.Mode}, up to {InviteLimit(next)?.ToString()??"unlimited"})."); }
         InviteCode=saved?.Code; InviteMode=saved?.Mode;
         return InviteCode!=null;
     }
@@ -198,6 +203,6 @@ internal static partial class Program
         else history.Add(new InviteRecord(DateTimeOffset.Now,InviteCode??"",InviteMode??"",null,null,"registered",ReadLoop("artifacts")?.Index));
         await File.WriteAllTextAsync(Path.Combine("artifacts",InviteHistoryFile),JsonSerializer.Serialize(history,JsonOptions));
         if(RetireUsedInvite("artifacts") is { } note) Console.WriteLine(note);
-        if(PromoteQueuedInvite("artifacts") is { } next) Console.WriteLine($"Next queued invitation code activated ({next.Mode}, up to {InviteLimit(next)}).");
+        if(PromoteQueuedInvite("artifacts") is { } next) Console.WriteLine($"Next queued invitation code activated ({next.Mode}, up to {InviteLimit(next)?.ToString()??"unlimited"}).");
     }
 }

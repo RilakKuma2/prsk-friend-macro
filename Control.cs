@@ -9,7 +9,8 @@ internal static partial class Program
 {
     record InstanceStatus(int Instance,string Name,bool VmRunning,bool WorkerRunning,string? Pending,
         string? Stage,string? StageTitle,string? StageStatus,string? Step,string? StepStatus,DateTimeOffset? Updated,
-        int StepIndex,int StepCount,string? LastLog,bool HasError,bool HasFrame,InviteSetting? Invite,int InviteUses,int InviteLimit,int QueueCount,InviteRecord? LoopInvite,LoopState? Loop,bool Locked,string? RunUnit);
+        int StepIndex,int StepCount,string? LastLog,bool HasError,bool HasFrame,InviteSetting? Invite,int InviteUses,int? InviteLimit,string? InviteOwner,int QueueCount,int? InviteCapacity,int? QueueCapacity,
+        InviteRecord? LoopInvite,LoopState? Loop,bool Locked,string? RunUnit);
     // Invite: "keep" leaves the codes as they are, "set" replaces the active code, "queue" appends to the queue,
     // "clear" removes the active code and the queue.
     record StartRequest(string Mode,string? From,string[]? Stages,string? Unit,string? Code,bool BootVm,int Loops=1,
@@ -111,6 +112,7 @@ internal static partial class Program
         var flow=LoadFlowCached();
         var stages=LoadStagesCached();
         var list=new List<InstanceStatus>();
+        var owners=InviteOwners();
         foreach(var (instance,name) in AllowedInstances)
         {
             var dir=ArtifactsDir(instance);
@@ -124,13 +126,14 @@ internal static partial class Program
             var log=TailLog(instance,8).Split('\n').Where(l=>l.Trim().Length>0).ToArray();
             var last=log.LastOrDefault();
             var vm=rows.TryGetValue(instance,out var row) && row[1]==name && row[4]=="1";
-            var invite=ReadInviteSetting(dir);
+            var invite=ReadInviteSetting(dir); var queue=ReadInviteQueue(dir);
+            var uses=invite==null?0:ActiveInviteUses(dir,invite);
             list.Add(new InstanceStatus(instance,name,vm,IsWorkerRunning(instance),PendingWork.GetValueOrDefault(instance)??ProvisionPending(instance),
                 stage,stages.FirstOrDefault(s=>s.Name==stage) is { } stageInfo?StageTitle(stageInfo):null,Str(progress,"Status"),step,Str(checkpoint,"Status"),updated,
                 step==null?-1:flow.FindIndex(s=>s.Name==step),flow.Count,last,
                 log.Any(l=>l.Contains("Exception") || l.Contains("Timed out")),File.Exists(Path.Combine(dir,"current.png")),
-                invite,invite==null?0:ActiveInviteUses(dir,invite),invite==null?0:InviteLimit(invite),ReadInviteQueue(dir).Count,
-                CurrentLoopInvite(dir),ReadLoop(dir),IsLocked(instance),RunningUnit(instance)));
+                invite,uses,invite==null?null:InviteLimit(invite),invite==null?null:owners.GetValueOrDefault(invite.Code),queue.Count,
+                InviteCapacity(invite,uses,queue),InviteCapacity(null,0,queue),CurrentLoopInvite(dir),ReadLoop(dir),IsLocked(instance),RunningUnit(instance)));
         }
         return list;
     }
@@ -174,7 +177,11 @@ internal static partial class Program
         };
     }
 
-    static List<string> BuildWorkerArgs(int instance,StartRequest request,string? inviteMode)
+    // Each loop registers the invitation once, so the saved codes must allow as many registrations as loops.
+    static string? LoopBlocker(int instance,int loops,int? capacity)=>capacity is not { } room || loops<=room?null
+        :room==0?T($"{instance}번은 등록된 초대 코드가 없어 반복할 수 없어요.",$"{instance}番は登録された招待コードがないため繰り返せません。",$"#{instance} has no invitation code, so it cannot loop.")
+        :T($"{instance}번 일회용 코드는 {room}회까지만 반복할 수 있어요.",$"{instance}番の使い捨てコードは{room}回までしか繰り返せません。",$"#{instance} single-use code allows only {room} loops.");
+    static List<string> BuildWorkerArgs(int instance,StartRequest request,int? inviteCapacity)
     {
         if(request.Code is { Length: >0 } code && !System.Text.RegularExpressions.Regex.IsMatch(code,"^[A-Za-z0-9]{15}$"))
             throw new ArgumentException(T("초대 코드는 영문/숫자 15자여야 합니다.","招待コードは英数字15文字です。","Invitation codes are 15 letters or digits."));
@@ -194,7 +201,7 @@ internal static partial class Program
         if(request.Loops>1)
         {
             if(request.Mode!="run") throw new ArgumentException(T("반복은 처음부터 실행에서만 할 수 있어요.","繰り返しは最初から実行でのみ使えます。","Loops are only available for runs from scratch."));
-            if(inviteMode!="permanent") throw new ArgumentException(T($"{instance}번은 영구 초대 코드가 없어 반복할 수 없어요.",$"{instance}番は永久招待コードがないため繰り返せません。",$"#{instance} has no permanent invitation code, so it cannot loop."));
+            if(LoopBlocker(instance,request.Loops,inviteCapacity) is { } blocker) throw new ArgumentException(blocker);
             args.AddRange(["--loops",request.Loops.ToString()]);
         }
         args.AddRange(["--instance",instance.ToString(),"--background"]);
@@ -211,9 +218,15 @@ internal static partial class Program
         if(invite is "set" or "queue") ValidateInvite(request.InviteCode,request.InviteMode,request.InviteLimit);
         else if(invite is not ("keep" or "clear")) throw new ArgumentException(T("초대 코드 설정이 올바르지 않습니다.","招待コードの設定が正しくありません。","Invalid invitation code setting."));
         var dir=ArtifactsDir(instance);
-        var current=ReadInviteSetting(dir)?.Mode??ReadInviteQueue(dir).FirstOrDefault()?.Mode;
-        var mode=invite switch { "set"=>request.InviteMode,"queue"=>current??request.InviteMode,"clear"=>null,_=>current };
-        var args=BuildWorkerArgs(instance,request,mode);
+        var active=ReadInviteSetting(dir); var queue=ReadInviteQueue(dir); var used=active==null?0:ActiveInviteUses(dir,active);
+        var capacity=invite switch
+        {
+            "set"=>InviteCapacity(NewInvite(request.InviteCode!,request.InviteMode!,request.InviteLimit),0,queue),
+            "queue"=>InviteCapacity(active,used,[..queue,NewInvite(request.InviteCode!,request.InviteMode!,request.InviteLimit)]),
+            "clear"=>0,
+            _=>InviteCapacity(active,used,queue)
+        };
+        var args=BuildWorkerArgs(instance,request,capacity);
         if(invite=="set") SaveInvite(instance,request.InviteCode!.Trim(),request.InviteMode!,request.InviteLimit);
         else if(invite=="queue") EnqueueInvite(instance,request.InviteCode!.Trim(),request.InviteMode!,request.InviteLimit);
         else if(invite=="clear") ClearAllInvites(instance);
@@ -405,20 +418,25 @@ internal static partial class Program
         var dir=ArtifactsDir(instance);
         var loop=ReadLoop(dir)??throw new InvalidOperationException(T($"{instance}번은 반복 기록이 없어요. 처음부터 실행으로 시작하세요.",$"{instance}番には繰り返しの記録がありません。最初から実行で始めてください。",$"#{instance} has no loop record. Start it with a run from scratch."));
         if(total<loop.Index || total>99) throw new ArgumentException(T($"회차는 {loop.Index}~99회로 정할 수 있어요.",$"周回は{loop.Index}〜99回にできます。",$"Loops can be set from {loop.Index} to 99."));
-        if(total>loop.Index && (ReadInviteSetting(dir)??ReadInviteQueue(dir).FirstOrDefault())?.Mode!="permanent")
-            throw new InvalidOperationException(T($"{instance}번은 영구 초대 코드가 없어 회차를 늘릴 수 없어요.",$"{instance}番は永久招待コードがないため周回を増やせません。",$"#{instance} has no permanent invitation code, so loops cannot be added."));
+        // Loops after this one each need a registration, and so does this one until it has registered.
+        var pending=CurrentLoopInvite(dir)?.Result=="registered"?0:1;
+        if(total>loop.Index && InviteCapacity(dir) is { } room && total-loop.Index+pending>room)
+            throw new InvalidOperationException(room-pending<=0
+                ?T($"{instance}번은 남은 초대 코드가 없어 회차를 늘릴 수 없어요.",$"{instance}番は残りの招待コードがないため周回を増やせません。",$"#{instance} has no invitation code left, so loops cannot be added.")
+                :T($"{instance}번 일회용 코드로는 총 {loop.Index+room-pending}회까지 돌 수 있어요.",$"{instance}番の使い捨てコードでは合計{loop.Index+room-pending}回まで回せます。",$"#{instance} single-use code allows {loop.Index+room-pending} loops in total."));
         WriteJsonAtomic(Path.Combine(dir,LoopFile),loop with { Total=total });
         AppendControlLog(instance,T($"반복 회차 변경: {loop.Total} → {total}",$"周回数を変更: {loop.Total} → {total}",$"Loops changed: {loop.Total} → {total}"));
         return T($"{instance}번 반복을 총 {total}회로 바꿨어요.",$"{instance}番の繰り返しを合計{total}回にしました。",$"#{instance} now runs {total} loops in total.");
     }
 
-    // Changes the registration count of the active code (index -1) or a queued one; never below what is already used.
+    // Changes the registration count of the active single-use code (index -1) or a queued one; never below what is already used.
     static string SetInviteLimit(int instance,int index,int limit)
     {
         RequireInstance(instance);
         var dir=ArtifactsDir(instance);
-        if(limit is <1 or >MaxInviteUses) throw new ArgumentException(T($"횟수는 1~{MaxInviteUses}회예요.",$"回数は1〜{MaxInviteUses}回です。",$"Uses must be 1 to {MaxInviteUses}."));
-        InviteSetting Adjust(InviteSetting s)=>limit>1 || s.Mode=="permanent"?s with { Mode="permanent",Limit=limit }:s with { Limit=null };
+        if(limit is <1 or >MaxOnceUses) throw new ArgumentException(T($"횟수는 1~{MaxOnceUses}회예요.",$"回数は1〜{MaxOnceUses}回です。",$"Uses must be 1 to {MaxOnceUses}."));
+        InviteSetting Adjust(InviteSetting s)=>s.Mode=="once"?s with { Limit=limit }
+            :throw new InvalidOperationException(T("영구 코드는 횟수 없이 계속 써요.","永久コードは回数なしで使い続けます。","Permanent codes have no use count."));
         var label=WithInviteLock(dir,()=>
         {
             if(index<0)
@@ -444,11 +462,12 @@ internal static partial class Program
         history.Reverse();
         var dir=ArtifactsDir(instance);
         var setting=ReadInviteSetting(dir);
+        var owners=InviteOwners();
         return new
         {
-            Setting=setting,Uses=setting==null?0:ActiveInviteUses(dir,setting),Limit=setting==null?0:InviteLimit(setting),
-            Total=setting==null?0:InviteUses(setting.Code),Max=MaxInviteUses,
-            Queue=ReadInviteQueue(dir).Select(q=>new { q.Code,q.Mode,Limit=InviteLimit(q),Total=InviteUses(q.Code) }),
+            Setting=setting,Uses=setting==null?0:ActiveInviteUses(dir,setting),Limit=setting==null?null:InviteLimit(setting),
+            Owner=setting==null?null:owners.GetValueOrDefault(setting.Code),
+            Queue=ReadInviteQueue(dir).Select(q=>new { q.Code,q.Mode,Limit=InviteLimit(q),Owner=owners.GetValueOrDefault(q.Code) }),
             History=history
         };
     }
@@ -457,12 +476,11 @@ internal static partial class Program
     {
         code=code?.Trim();
         if(!ValidInviteCode(code)) throw new ArgumentException(T("초대 코드는 영문/숫자 15자여야 합니다.","招待コードは英数字15文字です。","Invitation codes are 15 letters or digits."));
-        if(InviteUses(code!)>=MaxInviteUses) throw new ArgumentException(T($"이 코드는 이미 {MaxInviteUses}번 등록됐어요.",$"このコードはすでに{MaxInviteUses}回登録されています。",$"This code is already registered {MaxInviteUses} times."));
         if(mode is not ("once" or "permanent")) throw new ArgumentException(T("일회용 또는 영구를 선택하세요.","使い捨てか永久を選んでください。","Choose single-use or permanent."));
-        if(limit is <1 or >MaxInviteUses) throw new ArgumentException(T($"횟수는 1~{MaxInviteUses}회예요.",$"回数は1〜{MaxInviteUses}回です。",$"Uses must be 1 to {MaxInviteUses}."));
+        if(mode=="once" && limit is <1 or >MaxOnceUses) throw new ArgumentException(T($"횟수는 1~{MaxOnceUses}회예요.",$"回数は1〜{MaxOnceUses}回です。",$"Uses must be 1 to {MaxOnceUses}."));
     }
-    static InviteSetting NewInvite(string code,string mode,int? limit)=>new(code,mode,DateTimeOffset.Now,mode=="permanent"?limit??MaxInviteUses:null);
-    static string InviteLabel(InviteSetting s)=>s.Mode=="once"?T("일회용","使い捨て","single-use"):T($"영구 {InviteLimit(s)}회",$"永久 {InviteLimit(s)}回",$"permanent ×{InviteLimit(s)}");
+    static InviteSetting NewInvite(string code,string mode,int? limit)=>new(code.Trim(),mode,DateTimeOffset.Now,mode=="once"?limit??1:null);
+    static string InviteLabel(InviteSetting s)=>InviteLimit(s) is { } limit?T($"일회용 {limit}회",$"使い捨て {limit}回",$"single-use ×{limit}"):T("영구","永久","permanent");
 
     static async Task<string> SetInvite(int instance,string? code,string? mode,int? limit)
     {

@@ -484,8 +484,9 @@ internal static partial class Program
         {
             if(request.Loops is <1 or >99) throw new ArgumentException(T("반복 횟수는 1~99회예요.","繰り返し回数は1〜99回です。","Loops must be 1 to 99."));
             if(request.InviteCode is { Length: >0 }) ValidateInvite(request.InviteCode,request.InviteMode,request.InviteLimit);
-            if(request.Loops>1 && (request.InviteCode is not { Length: >0 } || request.InviteMode!="permanent"))
-                throw new ArgumentException(T("반복하려면 영구 초대 코드를 넣으세요.","繰り返すには永久招待コードを入れてください。","Loops need a permanent invitation code."));
+            if(request.Loops>1 && (request.InviteCode is not { Length: >0 } ? 0 : InviteCapacity(NewInvite(request.InviteCode,request.InviteMode!,request.InviteLimit),0,[])) is { } room && request.Loops>room)
+                throw new ArgumentException(room==0?T("반복하려면 초대 코드를 넣으세요.","繰り返すには招待コードを入れてください。","Loops need an invitation code.")
+                    :T($"일회용 코드는 {room}회까지만 반복할 수 있어요.",$"使い捨てコードは{room}回までしか繰り返せません。",$"The single-use code allows only {room} loops."));
         }
         var copies=request.Count-1;
         if(request.Base is { } source) RequireDisk(FolderBytes(VmDir(source)),copies);
