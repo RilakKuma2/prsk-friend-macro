@@ -170,6 +170,7 @@ internal static partial class Program
             using var screen=LoadCurrentScreen();
             await CheckRewards(screen);
             if(await DismissNotice(screen) || await DismissTutorialPanel(screen)) continue;
+            if(await EscapeUnexpectedStory(screen,"friend-open")) continue;
             var state=ReadInvitationState(screen);
             if(state!=InvitationState.Unknown)
             {

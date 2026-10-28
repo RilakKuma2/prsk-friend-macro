@@ -142,30 +142,43 @@ internal static partial class Program
         }
         throw new Exception(T("재개할 게임 화면을 확인하지 못했습니다. artifacts/current.png를 확인하세요. 계정 초기화는 하지 않았습니다.","再開するゲーム画面を確認できませんでした。artifacts/current.pngを確認してください。アカウント初期化は行っていません。","Could not recognize a game screen to resume from. Check artifacts/current.png. The account was not reset."));
     }
+    // A dialog takes a moment to close. A second tap at its button would land on what is behind it, on the area a
+    // character, which opens an area conversation: wait until it is gone instead (a dialog still open is tapped again later).
+    static async Task TapUntilClosed(int x,int y,Func<Bitmap,bool> open)
+    {
+        await Shell($"input tap {x} {y}");
+        for(var check=0;check<6;check++)
+        {
+            await Task.Delay(500);
+            await Snapshot("artifacts/current.png",true);
+            using var screen=LoadCurrentScreen();
+            if(!open(screen)) return;
+        }
+    }
     static async Task<bool> DismissNotice(Bitmap screen)
     {
         if(IsFeedbackRequest(screen))
         {
-            await Shell("input tap 390 406");
+            await TapUntilClosed(390,406,IsFeedbackRequest);
             Console.WriteLine("Closed feedback request with Do not send; no feedback submitted.");
             return true;
         }
         if(IsChallengeUnlock(screen))
         {
-            await Shell("input tap 390 318");
+            await TapUntilClosed(390,318,IsChallengeUnlock);
             Console.WriteLine("Closed challenge-live unlock notice; continuing current task.");
             return true;
         }
         if(IsRatingPrompt(screen))
         {
-            await Shell("input tap 753 30");
+            await TapUntilClosed(753,30,IsRatingPrompt);
             Console.WriteLine("Closed rating survey without submitting a response; retaining current progress.");
             return true;
         }
         var header=new Step("notice-header","templates/notice-header.png",0,0,110,22,86,20,"checkpoint");
         var close=new Step("notice-close","templates/notice-close.png",860,33,852,24,18,18,"tap");
         if(!Matches(screen,header) || !Matches(screen,close)) return false;
-        await Shell("input tap 860 33");
+        await TapUntilClosed(860,33,s=>Matches(s,header) && Matches(s,close));
         Console.WriteLine("Dismissed notice window; retaining current progress.");
         return true;
     }
