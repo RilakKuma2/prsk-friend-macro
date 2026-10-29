@@ -105,6 +105,7 @@ internal static partial class Program
         api.MapPost("/ldplayer",(HttpContext context,LdPlayerRequest request)=>
             context.Connection.RemoteIpAddress is { } ip && IPAddress.IsLoopback(ip)?Ok(SetLdFolder(request.Path)):Results.Json(new { message=T("이 PC에서만 바꿀 수 있습니다.","このPCでのみ変更できます。","Only this PC can change this.") },statusCode:403));
         api.MapPost("/language",(LanguageRequest request)=>{ SetLanguage(request.Language); return Results.Json(new { Language }); });
+        api.MapPost("/tab",(TabRequest request)=>{ SetTab(request.Emulator); return Results.Json(new { Tab=SavedTab }); });
         api.MapGet("/instances",async()=>Results.Json(await GetStatuses()));
         api.MapGet("/instances/{n:int}/log",(int n,int? lines)=>{ RequireInstance(n); return Results.Text(TailLog(n,Math.Clamp(lines??300,10,3000))); });
         api.MapGet("/instances/{n:int}/frame",(int n)=>{ RequireInstance(n); var bytes=LastFrame(n); return bytes==null?Results.NotFound():Results.File(bytes,"image/png"); });
@@ -150,6 +151,7 @@ internal static partial class Program
 
     record TapPoint(int X,int Y);
     record LanguageRequest(string? Language);
+    record TabRequest(string? Emulator);
     record LdPlayerRequest(string? Path);
     record LanRequest(bool Enabled,int? Port);
     record InviteRequest(string? Code,string? Mode,int? Limit);

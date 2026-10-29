@@ -729,7 +729,7 @@ document.addEventListener('click',e=>{if(!e.target.closest('#emu'))closeEmu()});
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeEmu()});
 function setTab(key){
   if(key===state.tab)return;
-  state.tab=key;state.sel.clear();try{localStorage.setItem('tab',key)}catch(e){}
+  state.tab=key;state.sel.clear();api('/tab',{emulator:key}).catch(()=>{});
   const tab=curTab();
   document.body.classList.toggle('bluestacks',isBs());
   $('#arrange').style.display=tab&&!tab.canArrange?'none':'';
@@ -1113,8 +1113,9 @@ $('#langBtn').onclick=()=>{renderLangs();show('#langSheet')};
 
 (async function init(){
   state.meta=await api('/meta');
-  // The emulator picked last while it is installed; else LDPlayer, unless only other emulators are installed.
-  let saved=null;try{saved=localStorage.getItem('tab')}catch(e){}
+  // The emulator picked last while it is installed (saved on the server: the desktop window's port changes on every
+  // launch, so the browser's storage would forget it); else LDPlayer, unless only other emulators are installed.
+  const saved=state.meta.tab;
   const list=emus(),any=list.some(e=>e.installed),pick=e=>e.installed||!any;
   state.tab=(list.find(e=>e.key===saved&&e.installed)??list.find(e=>e.key==='ldplayer'&&pick(e))??list.find(pick))?.key;
   document.body.classList.toggle('bluestacks',isBs());

@@ -38,6 +38,23 @@ internal static partial class Program
     };
     static IEnumerable<EmulatorKind> InstalledEmulators=>Emulators.Where(e=>FolderOf(e.Key)!=null);
     static string? EmulatorFolder=>InstalledEmulators.Select(e=>FolderOf(e.Key)).FirstOrDefault();
+    // The emulator picked in the panel, saved in local/tab.txt and shared by every client like the language: the desktop
+    // window's port changes on every launch, so the browser's own storage would forget it.
+    static string TabFile=>Path.Combine(Workspace,"local","tab.txt");
+    static string? SavedTab
+    {
+        get
+        {
+            try { var key=File.Exists(TabFile)?File.ReadAllText(TabFile).Trim():null; return InstalledEmulators.Any(e=>e.Key==key)?key:null; }
+            catch { return null; }
+        }
+    }
+    static void SetTab(string? key)
+    {
+        if(!Emulators.Any(e=>e.Key==key)) throw new ArgumentException("Unknown emulator: "+key);
+        Directory.CreateDirectory(Path.GetDirectoryName(TabFile)!);
+        File.WriteAllText(TabFile,key);
+    }
     static string RequireFolder(string key)=>FolderOf(key)??throw new InvalidOperationException(key=="ldplayer"?LdMissing
         :T($"{EmulatorLabel(key)} 설치 폴더를 찾지 못했어요. 설치한 뒤 다시 시도하세요.",$"{EmulatorLabel(key)}のインストール先が見つかりません。インストールしてからやり直してください。",$"{EmulatorLabel(key)} was not found. Install it and try again."));
     // BlueStacks makes, copies and removes VMs only in its multi-instance manager, and has no window arrangement.

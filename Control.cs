@@ -167,6 +167,7 @@ internal static partial class Program
             // One tab per installed emulator; instance numbers from Base to Base+999 belong to it.
             Emulators=Emulators.Select(e=>new { e.Key,e.Base,Label=EmulatorLabel(e.Key),Installed=FolderOf(e.Key)!=null,
                 CanManage=CanManageVms(e.Key),CanArrange=CanArrange(e.Key) }),
+            Tab=SavedTab,
             Block=EmulatorBlock,
             Plan=plan.Stages,
             Steps=LoadFlowCached().Select(s=>s.Name),
