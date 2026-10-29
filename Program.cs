@@ -250,6 +250,8 @@ internal static partial class Program
             }
             return 0;
         }
+        // A stop asked from the panel is not a failure: it is logged without the exception, so the card does not show one.
+        catch(OperationCanceledException ex) when(StopRequested || File.Exists("artifacts/macro.stop")) { Console.WriteLine(ex.Message.StartsWith("Stopped")?ex.Message:"Stopped: "+ex.Message); return 1; }
         catch(Exception ex) { Console.Error.WriteLine(ex.ToString()); return 1; }
     }
     static List<Step> StepsForStage(string name)
@@ -260,9 +262,10 @@ internal static partial class Program
         if(first<0 || last<first) throw new Exception("Invalid stage boundaries: "+name);
         return flow.GetRange(first,last-first+1);
     }
-    static async Task ExecuteStages()
+    // From a given stage on, when a failed stage is run again; from the first otherwise.
+    static async Task ExecuteStages(string? from=null)
     {
-        foreach(var name in SelectedStages)
+        foreach(var name in from==null?SelectedStages:SelectedStages.SkipWhile(s=>s!=from))
         {
             if(name=="invitation" && !RefreshInviteCode())
             {
@@ -570,6 +573,8 @@ internal static partial class Program
             if(step.Name=="music-shop-open") { await OpenMusicShop(step); previous=step; continue; }
             Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Waiting: {step.Name}");
             var deadline=DateTime.UtcNow.AddMinutes(10);
+            var waitStarted=DateTime.UtcNow;
+            var startupRestarts=0;
             var lastMovieTap=DateTime.UtcNow;
             var lastRetry=DateTime.UtcNow;
             var lastActivityCheck=DateTime.MinValue;
@@ -618,6 +623,16 @@ internal static partial class Program
                     if(Matches(screen,new Step("app-update","templates/app-update.png",480,318,410,304,140,30,"checkpoint")))
                         throw new Exception("The game must be updated (新しいアプリがあります). Update it in VM management (game update) and start again.");
                     if(await RecoverStalledTitle(screen)) { lastActivityCheck=DateTime.MinValue; previous=null; continue; }
+                    // The game can freeze on its loading screen (a blank background) before the title, which otherwise shows
+                    // within about two minutes of launch; a launch still short of it after three reboots the instance.
+                    if(step.Name is "google-back" or "title-start" && startupRestarts<2 && DateTime.UtcNow-waitStarted>TimeSpan.FromMinutes(3))
+                    {
+                        File.Copy("artifacts/current.png",$"artifacts/startup-stall-{++startupRestarts}.png",true);
+                        Console.WriteLine($"Title not shown 3 minutes after launch ({startupRestarts}/2).");
+                        await RebootInstance();
+                        waitStarted=DateTime.UtcNow; deadline=waitStarted.AddMinutes(10); lastActivityCheck=DateTime.MinValue; previous=null;
+                        continue;
+                    }
                     if(onboardingStep && steps.IndexOf(step)<steps.FindIndex(s=>s.Name=="gift-claim-all") && IsGiftInbox(screen))
                     { HomeGuidesCompleted=true; skipOptional=true; break; }
                     if(await EscapeUnexpectedStory(screen,step.Name)) { previous=null; continue; }
