@@ -42,14 +42,23 @@ h1{font-size:22px;font-weight:700;letter-spacing:-.02em}
 .ghost:active{background:var(--fill-strong)}
 .ghost.icon{width:36px;padding:0;display:grid;place-items:center}
 
-/* Emulator tabs: one per installed emulator, shown when there are two or more. */
-.tabs{display:flex;gap:6px;overflow-x:auto;padding:10px 0 0;scrollbar-width:none}
-.tabs::-webkit-scrollbar{display:none}
-.tabs button{height:36px;padding:0 14px;border-radius:18px;background:var(--fill);color:var(--text-2);font-size:14px;font-weight:600;white-space:nowrap;display:inline-flex;align-items:center;gap:6px;flex:none}
-.tabs button:hover{background:var(--fill-strong)}
-.tabs button.on{background:var(--text);color:var(--bg)}
-.tabs button .n{font-size:12px;opacity:.65;font-variant-numeric:tabular-nums}
-.tabs button .on-dot{width:6px;height:6px;border-radius:50%;background:var(--green)}
+/* Emulator picker by the title (Windows): every supported emulator, the picked one's VMs below. */
+.title{display:flex;align-items:center;gap:12px;min-width:0}
+.emu{position:relative}
+.emu-btn{height:36px;padding:0 10px 0 13px;border-radius:11px;background:var(--surface);box-shadow:var(--shadow);display:inline-flex;align-items:center;gap:7px;font-size:14.5px;font-weight:700;white-space:nowrap}
+.emu-btn:hover{background:var(--surface-2)}
+.emu-btn .n{font-size:12.5px;font-weight:600;color:var(--text-3);font-variant-numeric:tabular-nums}
+.emu-btn .n.miss{color:var(--red)}
+.emu-btn svg{color:var(--text-3);transition:transform .15s}
+.emu.open .emu-btn svg{transform:rotate(180deg)}
+.emu-menu{position:absolute;top:calc(100% + 6px);left:0;z-index:25;width:250px;max-width:calc(100vw - 32px);padding:6px;border-radius:14px;background:var(--surface);box-shadow:var(--modal-shadow);display:none}
+.emu.open .emu-menu{display:block}
+.emu-menu button{width:100%;height:42px;padding:0 10px 0 8px;border-radius:9px;display:flex;align-items:center;gap:8px;text-align:left;font-size:14.5px;font-weight:600}
+.emu-menu button:hover,.emu-menu button:focus-visible{background:var(--fill);outline:none}
+.emu-menu .chk{width:16px;flex:none;color:var(--accent);display:grid;place-items:center}
+.emu-menu .dot{width:6px;height:6px;border-radius:50%;background:var(--green);flex:none}
+.emu-menu .meta{margin-left:auto;font-size:12.5px;font-weight:500;color:var(--text-3);font-variant-numeric:tabular-nums}
+.emu-menu .miss .lb{color:var(--text-3)}
 .summary{display:flex;gap:28px;padding:18px 0 22px;align-items:flex-end}
 .summary div{display:flex;flex-direction:column}
 .summary b{font-size:28px;font-weight:700;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
@@ -287,7 +296,8 @@ select.field{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xml
 @media (max-width:640px){
   .wrap{padding:0 16px 150px}
   header{padding-top:20px}
-  .summary{gap:20px}
+  .summary{gap:12px 20px;flex-wrap:wrap}
+  .summary span,.summary button{white-space:nowrap}
   .summary b{font-size:24px}
   .sheet,.sheet.wide{left:0;right:0;top:auto;bottom:0;width:100%;max-height:92%;border-radius:24px 24px 0 0;transform:translateY(100%);opacity:1;box-shadow:var(--sheet-shadow)}
   .sheet.show{transform:translateY(0)}
@@ -317,7 +327,12 @@ select.field{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xml
 <body>
 <div class="wrap">
   <header>
-    <h1>셐 매크로</h1>
+    <div class="title"><h1>셐 매크로</h1>
+      <div class="emu" id="emu" style="display:none">
+        <button class="emu-btn" id="emuBtn" aria-haspopup="listbox" aria-expanded="false" aria-label="에뮬레이터 선택"><span id="emuName"></span><span class="n" id="emuCount"></span>
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4.5l3 3 3-3"/></svg></button>
+        <div class="emu-menu" id="emuMenu" role="listbox"></div>
+      </div></div>
     <div class="top-actions">
       <button class="ghost" id="captureAll" title="모든 VM 화면 새로 캡쳐">캡쳐<span class="t"> 전체</span></button>
       <button class="ghost ld-only" id="arrange">창 정렬</button>
@@ -327,10 +342,9 @@ select.field{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xml
       <button class="ghost icon" id="langBtn" aria-label="언어"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.7 3.8 5.7 3.8 9s-1.3 6.3-3.8 9c-2.5-2.7-3.8-5.7-3.8-9S9.5 5.7 12 3z"/></svg></button>
     </div>
   </header>
-  <div class="note ldnote" id="ldNote" style="display:none">LD플레이어를 찾지 못했어요. ldconsole.exe가 있는 폴더를 알려주세요.
+  <div class="note ldnote" id="ldNote" style="display:none"><span id="ldNoteText">LD플레이어를 찾지 못했어요. ldconsole.exe가 있는 폴더를 알려주세요.</span>
     <div class="ldrow"><input class="field" id="ldPath" placeholder="예: D:\LDPlayer\LDPlayer9" spellcheck="false"><button class="btn primary" id="ldSave">저장</button></div>
     <div class="links" id="ldLinks"></div></div>
-  <nav class="tabs" id="tabs" style="display:none"></nav>
   <section class="summary">
     <div><b id="sRun">0</b><span>실행 중</span></div>
     <div><b id="sVm">0</b><span>VM 켜짐</span></div>
@@ -542,18 +556,22 @@ const DICT={"ja":{"셐 매크로":"セカマクロ","모든 VM 화면 새로 캡
 // BlueStacks (macOS) wording.
 Object.assign(DICT.ja,{"블루스택":"BlueStacks","＋ VM 세팅":"＋ VM準備","세팅할 VM":"準備するVM","VM은 블루스택 멀티 인스턴스 매니저에서 만들어요":"VMはBlueStacksのマルチインスタンスマネージャーで作ります","블루스택 VM에 게임을 설치하고 세팅해요":"BlueStacksのVMにゲームを入れて準備します","BlueStacks Air 받기":"BlueStacks Airを入手","apkpure 최신 버전을 브라우저에서 받아 설치하고 QooApp도 깔아요":"apkpureの最新版をブラウザで取得してインストールし、QooAppも入れます","게임은 그대로 두고 세팅만 해요":"ゲームはそのままで準備だけします","{0}을 세팅할까요?":"{0}を準備しますか？","잠기지 않은 VM이 없어요":"ロックされていないVMがありません"});
 Object.assign(DICT.en,{"블루스택":"BlueStacks","＋ VM 세팅":"＋ Set up VM","세팅할 VM":"VM to set up","VM은 블루스택 멀티 인스턴스 매니저에서 만들어요":"Create VMs in the BlueStacks multi-instance manager","블루스택 VM에 게임을 설치하고 세팅해요":"Install the game on a BlueStacks VM and set it up","BlueStacks Air 받기":"Get BlueStacks Air","apkpure 최신 버전을 브라우저에서 받아 설치하고 QooApp도 깔아요":"Downloads the latest apkpure version in the browser, installs it and adds QooApp","게임은 그대로 두고 세팅만 해요":"Keeps the installed game and only sets up","{0}을 세팅할까요?":"Set up {0}?","잠기지 않은 VM이 없어요":"No unlocked VM"});
-// Several emulators (Windows) show as tabs; each owns a block of instance numbers (MuMu from 1000, ...) and its VMs are
-// numbered from 0 within its tab. macOS has only BlueStacks Air.
+// Windows picks one of several emulators by the title; each owns a block of instance numbers (MuMu from 1000, ...) and
+// its VMs are numbered from 0 within it. macOS has only BlueStacks Air.
 Object.assign(DICT.ja,{"초대 코드":"招待コード","지금 코드":"現在のコード","새 코드":"新しいコード","{0}대에 초대 코드를 저장했어요":"{0}台に招待コードを保存しました","{0}대 대기열에 추가했어요":"{0}台の待機列に追加しました",
   "{0} VM을 만들고 복제하고 세팅해요":"{0}のVMを作成・複製・準備します","{0} VM에 게임을 설치하고 세팅해요":"{0}のVMにゲームを入れて準備します","{0}에서 VM이 완전히 삭제돼요. 매크로 기록은 local/removed에 남아요.":"{0}からVMが完全に削除されます。マクロの記録はlocal/removedに残ります。",
-  "VM은 {0} 멀티 인스턴스 매니저에서 만들어요":"VMは{0}のマルチインスタンスマネージャーで作ります"});
+  "VM은 {0} 멀티 인스턴스 매니저에서 만들어요":"VMは{0}のマルチインスタンスマネージャーで作ります",
+  "에뮬레이터 선택":"エミュレーターを選択","VM {0}대":"VM {0}台","설치 안 됨":"未インストール","{0} 설치 폴더를 찾지 못했어요. 설치하면 자동으로 찾아요.":"{0}のインストール先が見つかりません。インストールすると自動で見つけます。"});
 Object.assign(DICT.en,{"초대 코드":"Invitation code","지금 코드":"Current codes","새 코드":"New code","{0}대에 초대 코드를 저장했어요":"Saved the invitation code on {0}","{0}대 대기열에 추가했어요":"Queued the code on {0}",
   "{0} VM을 만들고 복제하고 세팅해요":"Create, copy and set up {0} VMs","{0} VM에 게임을 설치하고 세팅해요":"Install the game on a {0} VM and set it up","{0}에서 VM이 완전히 삭제돼요. 매크로 기록은 local/removed에 남아요.":"The VM is deleted from {0}. Macro records stay in local/removed.",
-  "VM은 {0} 멀티 인스턴스 매니저에서 만들어요":"Create VMs in the {0} multi-instance manager"});
+  "VM은 {0} 멀티 인스턴스 매니저에서 만들어요":"Create VMs in the {0} multi-instance manager",
+  "에뮬레이터 선택":"Pick an emulator","VM {0}대":"{0} VMs","설치 안 됨":"Not installed","{0} 설치 폴더를 찾지 못했어요. 설치하면 자동으로 찾아요.":"{0} was not found. It is picked up once installed."});
 const isMac=()=>state.meta?.emulator==='bluestacks';
 const block=()=>state.meta?.block||1000;
-const tabs=()=>(state.meta?.emulators||[]).filter(e=>e.installed);
-const curTab=()=>(state.meta?.emulators||[]).find(e=>e.key===state.tab);
+const emus=()=>state.meta?.emulators||[];
+const curTab=()=>emus().find(e=>e.key===state.tab);
+// The picked emulator's install is checked again with its VM info every few seconds; the others with the list.
+const installed=e=>e.key===state.tab&&vmInfo?.ld?vmInfo.ld.folder!=null:e.installed;
 const kindOf=n=>[...(state.meta?.emulators||[])].reverse().find(e=>n>=e.base)?.key;
 const inTab=n=>!state.tab||kindOf(n)===state.tab;
 // BlueStacks makes, copies and removes VMs in its own manager: the tab only sets up VMs made there.
@@ -668,7 +686,7 @@ function render(){
   }
   // Cards of VMs that were removed go away.
   grid.querySelectorAll('.card').forEach(c=>{if(!state.list.some(i=>i.instance===+c.dataset.i))c.remove()});
-  renderTabs();
+  renderEmu();
   const shown=state.list.filter(i=>inTab(i.instance));
   grid.classList.toggle('two',shown.length>3);
   $('#sRun').textContent=shown.filter(i=>i.workerRunning).length;
@@ -690,19 +708,41 @@ function toggle(n){if(cur(n)?.locked)return;state.sel.has(n)?state.sel.delete(n)
 $('#selectAll').onclick=()=>{state.list.filter(i=>!i.locked&&inTab(i.instance)).forEach(i=>state.sel.add(i.instance));render()};
 // Instances an action was sent to leave the selection, so the next action starts from a clean slate.
 function deselect(ns){ns.forEach(n=>state.sel.delete(n));render()}
-function renderTabs(){
-  const list=tabs(),nav=$('#tabs');nav.style.display=list.length>1?'':'none';
-  nav.innerHTML=list.map(e=>{const vms=state.list.filter(i=>kindOf(i.instance)===e.key),on=vms.some(i=>i.vmRunning);
-    return `<button data-tab="${e.key}" class="${e.key===state.tab?'on':''}">${on?'<i class="on-dot"></i>':''}${esc(e.label)}<span class="n">${vms.length}</span></button>`}).join('');
-  nav.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>setTab(b.dataset.tab));
+const TICK='<svg width="14" height="14" viewBox="0 0 14 14"><path d="M3 7.2l2.6 2.6L11 4.4" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+function renderEmu(){
+  const list=emus(),box=$('#emu');box.style.display=list.length>1?'':'none';
+  if(list.length<2)return;
+  const vmsOf=k=>state.list.filter(i=>kindOf(i.instance)===k),tab=curTab();
+  $('#emuName').textContent=tab?.label||'';
+  const count=$('#emuCount'),ok=tab&&installed(tab);count.textContent=ok?t('VM {0}대',vmsOf(tab.key).length):t('설치 안 됨');count.classList.toggle('miss',!ok);
+  const html=list.map(e=>{const vms=vmsOf(e.key),on=e.key===state.tab;
+    return `<button role="option" aria-selected="${on}" data-emu="${e.key}" class="${installed(e)?'':'miss'}"><span class="chk">${on?TICK:''}</span><span class="lb">${esc(e.label)}</span>`+
+      `${vms.some(i=>i.vmRunning)?'<i class="dot"></i>':''}<span class="meta">${installed(e)?t('VM {0}대',vms.length):t('설치 안 됨')}</span></button>`}).join('');
+  const menu=$('#emuMenu');
+  if(menu.dataset.html!==html){menu.dataset.html=html;menu.innerHTML=html;menu.querySelectorAll('[data-emu]').forEach(b=>b.onclick=()=>{closeEmu();setTab(b.dataset.emu)})}
 }
+function closeEmu(){$('#emu').classList.remove('open');$('#emuBtn').setAttribute('aria-expanded','false')}
+// Opening the list looks again for emulators installed since the page loaded.
+$('#emuBtn').onclick=()=>{if(!$('#emu').classList.toggle('open'))return closeEmu();
+  $('#emuBtn').setAttribute('aria-expanded','true');api('/meta').then(m=>{state.meta.emulators=m.emulators;renderEmu()}).catch(()=>{})};
+document.addEventListener('click',e=>{if(!e.target.closest('#emu'))closeEmu()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeEmu()});
 function setTab(key){
   if(key===state.tab)return;
   state.tab=key;state.sel.clear();try{localStorage.setItem('tab',key)}catch(e){}
   const tab=curTab();
   document.body.classList.toggle('bluestacks',isBs());
   $('#arrange').style.display=tab&&!tab.canArrange?'none':'';
-  vmInfo=null;loadVms();render();
+  vmInfo=null;renderNote();loadVms();render();
+}
+// The picked emulator is not installed: LDPlayer's folder can be given here; the others are found once installed.
+function renderNote(){
+  const tab=curTab(),missing=tab?!installed(tab):!state.meta?.ldPlayer;
+  $('#ldNote').style.display=missing?'':'none';
+  if(!missing)return;
+  const ld=!tab||tab.key==='ldplayer';
+  $('#ldNoteText').textContent=ld?t('LD플레이어를 찾지 못했어요. ldconsole.exe가 있는 폴더를 알려주세요.'):t('{0} 설치 폴더를 찾지 못했어요. 설치하면 자동으로 찾아요.',tab.label);
+  $('#ldNote .ldrow').style.display=ld?'':'none';
 }
 $('#selectNone').onclick=()=>{state.sel.clear();render()};
 async function setLock(n,locked){await act(()=>api(`/instances/${n}/lock`,{locked}));await refresh()}
@@ -983,7 +1023,7 @@ function renderVmInfo(){
   $('#vmEmu').textContent=curTab()?.label||'';
   const pill=$('#provPill');pill.style.display=p&&p.alive?'':'none';
   if(p&&p.alive)pill.querySelector('em').textContent=t('VM 세팅 중')+' · '+(p.detail||p.label);
-  $('#ldLinks').innerHTML=ldLinks(ld);
+  $('#ldLinks').innerHTML=ldLinks(ld);renderNote();
   $('#vmLdFolder').textContent=ld.folder||t('찾지 못함');$('#vmLdVersion').textContent=ld.version||'-';$('#vmLinks').innerHTML=ldLinks(ld,true)+(state.local?`<button class="linkbtn" id="gameUpd">${t('게임 업데이트')}</button>`:'');renderDisk();
   $('#gameUpd')?.addEventListener('click',async()=>{if(await confirmBox(t('게임을 업데이트할까요?'),t('apkpure 최신 버전으로 올려요. 매크로가 돌고 있는 VM은 건너뛰고, 계정과 데이터는 그대로예요.'),t('업데이트')))act(()=>api('/vms/update',{}))});
   const jobState={running:t('진행 중'),done:t('완료'),failed:t('실패'),cancelled:t('취소됨')}[p?.state]||p?.state;
@@ -1073,9 +1113,10 @@ $('#langBtn').onclick=()=>{renderLangs();show('#langSheet')};
 
 (async function init(){
   state.meta=await api('/meta');
-  // The last tab shown, else the first installed emulator.
+  // The emulator picked last while it is installed; else LDPlayer, unless only other emulators are installed.
   let saved=null;try{saved=localStorage.getItem('tab')}catch(e){}
-  state.tab=tabs().some(e=>e.key===saved)?saved:tabs()[0]?.key;
+  const list=emus(),any=list.some(e=>e.installed),pick=e=>e.installed||!any;
+  state.tab=(list.find(e=>e.key===saved&&e.installed)??list.find(e=>e.key==='ldplayer'&&pick(e))??list.find(pick))?.key;
   document.body.classList.toggle('bluestacks',isBs());
   $('#arrange').style.display=curTab()&&!curTab().canArrange?'none':'';
   // The server's language is shared by every client (and its messages and logs); follow it.
@@ -1086,7 +1127,7 @@ $('#langBtn').onclick=()=>{renderLangs();show('#langSheet')};
   const sel=$('#pointDetail');
   const g1=document.createElement('optgroup');g1.label=t('단계 시작');state.meta.stages.forEach(s=>g1.appendChild(new Option(s.title,s.name)));sel.appendChild(g1);
   const g2=document.createElement('optgroup');g2.label=t('세부 지점');state.meta.steps.forEach(s=>g2.appendChild(new Option(s,s)));sel.appendChild(g2);
-  $('#ldNote').style.display=state.meta.ldPlayer?'none':'';loadVms();
+  renderNote();loadVms();
   const s=await api('/server');state.local=s.local;if(!s.local)$('#remote').style.display='none';
   await refresh();setInterval(refresh,2000);
 })();
