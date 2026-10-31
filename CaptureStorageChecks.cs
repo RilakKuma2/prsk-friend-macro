@@ -68,7 +68,7 @@ internal static partial class Program
             await using var receiver=new FrameReceiver(FrameRelay.PipeName(original),(n,bytes)=>received.TrySetResult(bytes));
             receiver.Start();
             var info=new ProcessStartInfo(Environment.ProcessPath!) { WorkingDirectory=original,UseShellExecute=false };
-            if(Path.GetFileNameWithoutExtension(Environment.ProcessPath)=="dotnet") info.ArgumentList.Add(typeof(Program).Assembly.Location);
+            if(Path.GetFileNameWithoutExtension(Environment.ProcessPath)=="dotnet") info.ArgumentList.Add(Path.Combine(AppContext.BaseDirectory,"SekaiMacro.dll"));
             info.ArgumentList.Add("check-frame-publish");info.ArgumentList.Add(Path.Combine(root,"export.png"));
             using var child=Process.Start(info)!;
             await child.WaitForExitAsync();

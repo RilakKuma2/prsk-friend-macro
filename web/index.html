@@ -682,10 +682,10 @@ function render(){
     const img=card.querySelector('.thumb img'),empty=card.querySelector('.empty');
     empty.style.display=i.hasFrame?'none':'';
     const due=!frameAt[i.instance]||(i.workerRunning&&Date.now()-frameAt[i.instance]>3000);
-    if(i.hasFrame&&due&&!img.dataset.fresh){frameAt[i.instance]=Date.now();img.src=`/api/instances/${i.instance}/frame?t=${Date.now()}`}
+    if(i.hasFrame&&due&&!img.dataset.fresh){frameAt[i.instance]=Date.now();setPreviewImage(img,`/api/instances/${i.instance}/frame?t=${Date.now()}`)}
   }
   // Cards of VMs that were removed go away.
-  grid.querySelectorAll('.card').forEach(c=>{if(!state.list.some(i=>i.instance===+c.dataset.i))c.remove()});
+  grid.querySelectorAll('.card').forEach(c=>{if(!state.list.some(i=>i.instance===+c.dataset.i)){releasePreviewImage(c.querySelector('.thumb img'));c.remove()}});
   renderEmu();
   const shown=state.list.filter(i=>inTab(i.instance));
   grid.classList.toggle('two',shown.length>3);
@@ -889,11 +889,14 @@ $('#bInvSave').onclick=()=>sendInvites('invite');
 $('#bInvQueue').onclick=()=>sendInvites('invite/queue');
 
 /* Detail */
+function releasePreviewImage(img){if(img?.dataset.blobUrl){URL.revokeObjectURL(img.dataset.blobUrl);delete img.dataset.blobUrl}}
+function setPreviewImage(img,src,blob=false){releasePreviewImage(img);if(blob)img.dataset.blobUrl=src;img.src=src}
 let liveTimer,logTimer,shotUrl;
+function clearShot(){if(shotUrl)URL.revokeObjectURL(shotUrl);shotUrl=null;$('#screenImg').removeAttribute('src')}
 function cur(n=state.detail){return state.list.find(i=>i.instance===n)}
-function openDetail(n){state.detail=n;state.tap=false;state.live=false;$('#screenImg').removeAttribute('src');$('#stamp').textContent='';
+function openDetail(n){clearShot();state.detail=n;state.tap=false;state.live=false;$('#stamp').textContent='';
   $('#invQueue').innerHTML='';dInv.set('','permanent',1,null);$('#hist').innerHTML='';renderDetail();show('#detail');loadFrame();loadLog();loadInvite();logTimer=setInterval(()=>{loadLog();loadInvite()},2500)}
-function closeDetail(){state.detail=null;clearInterval(liveTimer);clearInterval(logTimer);state.live=false}
+function closeDetail(){state.detail=null;clearInterval(liveTimer);clearInterval(logTimer);state.live=false;clearShot()}
 function renderDetail(){
   const i=cur();if(!i)return;const [,label]=status(i);
   $('#dTitle').textContent=nth(i.instance);$('#dSub').textContent=i.name;
@@ -913,11 +916,11 @@ function renderDetail(){
   $('#capture').disabled=$('#live').disabled=!i.vmRunning;
 }
 function setShot(blob,label){if(shotUrl)URL.revokeObjectURL(shotUrl);shotUrl=URL.createObjectURL(blob);$('#screenImg').src=shotUrl;$('#stamp').textContent=label}
-async function loadFrame(){const n=state.detail;const r=await fetch(`/api/instances/${n}/frame?t=${Date.now()}`);if(r.ok&&state.detail===n)setShot(await r.blob(),t('마지막 화면'))}
+async function loadFrame(){const n=state.detail;const r=await fetch(`/api/instances/${n}/frame?t=${Date.now()}`);if(r.ok){const blob=await r.blob();if(state.detail===n)setShot(blob,t('마지막 화면'))}}
 async function capture(silent){
   const n=state.detail;if(n==null)return;
   try{const r=await fetch(`/api/instances/${n}/screen`);if(!r.ok)throw new Error((await r.json()).message);
-    if(state.detail===n)setShot(await r.blob(),new Date().toLocaleTimeString(LOCALE[lang],{hour:'2-digit',minute:'2-digit',second:'2-digit'}))}
+    const blob=await r.blob();if(state.detail===n)setShot(blob,new Date().toLocaleTimeString(LOCALE[lang],{hour:'2-digit',minute:'2-digit',second:'2-digit'}))}
   catch(e){if(!silent)toast(e.message,true);stopLive()}
 }
 function stopLive(){state.live=false;clearInterval(liveTimer);$('#live').className='btn tonal';$('#live').textContent=t('실시간')}
@@ -987,7 +990,7 @@ $('#captureAll').onclick=async()=>{
   const on=state.list.filter(i=>i.vmRunning);if(!on.length)return toast(t('켜진 VM이 없어요'),true);
   toast(t('캡쳐하는 중…'));
   await Promise.all(on.map(async i=>{try{const r=await fetch(`/api/instances/${i.instance}/screen`);if(!r.ok)return;const img=$(`[data-i="${i.instance}"] .thumb img`);
-    img.src=URL.createObjectURL(await r.blob());img.dataset.fresh='1';$(`[data-i="${i.instance}"] .empty`).style.display='none';setTimeout(()=>delete img.dataset.fresh,8000)}catch(e){}}));
+    const blob=await r.blob();if(!img?.isConnected)return;setPreviewImage(img,URL.createObjectURL(blob),true);img.dataset.fresh='1';$(`[data-i="${i.instance}"] .empty`).style.display='none';setTimeout(()=>delete img.dataset.fresh,8000)}catch(e){}}));
   toast(t('{0}대 캡쳐 완료',on.length));
 };
 function renderLan(urls){
