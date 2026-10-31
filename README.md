@@ -99,3 +99,13 @@ dotnet build -c Release -o bin/mac     # 개발용: SekaiMacro.command 실행 (�
 | `local\` | 인스턴스별 진행 기록·초대 코드·설정 (실행 중 생성) |
 
 이 프로젝트는 개인이 만든 비공식 도구이며, 사용에 따른 책임은 사용자에게 있습니다.
+
+## 릴리스 설명 형식
+
+릴리스 설명 맨 위에는 운영체제별 직접 다운로드 링크를 항상 넣습니다. 아래 `<태그>`를 실제 버전 태그로 바꾸고, 해당 릴리스에 첨부한 파일을 연결합니다.
+
+```markdown
+윈도우: [**SekaiMacro-win-x64.zip**](https://github.com/RilakKuma2/prsk-friend-macro/releases/download/<태그>/SekaiMacro-win-x64.zip)을 받아 압축을 푼 뒤 실행하세요.
+
+맥: [**SekaiMacro-mac-arm64.dmg**](https://github.com/RilakKuma2/prsk-friend-macro/releases/download/<태그>/SekaiMacro-mac-arm64.dmg)를 받아 앱을 응용 프로그램 폴더로 옮기세요.
+```
