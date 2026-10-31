@@ -5,7 +5,7 @@ internal static partial class Program
     static Bitmap LoadCurrentScreen()
     {
         // Nested recovery helpers can capture again while their caller still examines a frame.
-        using var stream=new MemoryStream(File.ReadAllBytes("artifacts/current.png"));
+        using var stream=new MemoryStream(CurrentFrameBytes());
         using var bitmap=new Bitmap(stream);
         return new Bitmap(bitmap);
     }
@@ -55,7 +55,7 @@ internal static partial class Program
             for(var i=0;i<30;i++)
             {
                 if(StopRequested || File.Exists("artifacts/macro.stop")) throw new OperationCanceledException();
-                await Snapshot("artifacts/current.png",true);
+                await Snapshot(quiet:true);
                 using var screen=LoadCurrentScreen();
                 if(!IsEventStoryList(screen)) throw new Exception("Story list lost while locating its bottom.");
                 using var strip=screen.Clone(new Rectangle(500,85,390,380),screen.PixelFormat);
@@ -68,20 +68,20 @@ internal static partial class Program
             for(var page=0;page<30;page++)
             {
                 if(StopRequested || File.Exists("artifacts/macro.stop")) throw new OperationCanceledException();
-                await Snapshot("artifacts/current.png",true);
+                await Snapshot(quiet:true);
                 using var screen=LoadCurrentScreen();
                 if(!IsEventStoryList(screen)) throw new Exception("Story list lost while locating SKIP badge.");
                 var y=FindBottomSkip(screen);
                 if(y>=0)
                 {
-                    File.Copy("artifacts/current.png","artifacts/story-resume-selection.png",true);
+                    SaveCurrentEvidence("artifacts/story-resume-selection.webp");
                     Console.WriteLine($"Lowest SKIP badge confirmed at y={y}; selecting its episode.");
                     await Shell($"input tap 640 {Math.Min(495,y+32)}");
                     await Task.Delay(1200); return;
                 }
                 using var strip=screen.Clone(new Rectangle(500,85,390,380),screen.PixelFormat);
                 await Shell("input swipe 700 145 700 435 350"); await Task.Delay(650);
-                await Snapshot("artifacts/current.png",true);
+                await Snapshot(quiet:true);
                 using var next=LoadCurrentScreen();
                 if(DifferenceAt(next,strip,500,85,390,380)<2)
                     throw new Exception("No SKIP-marked episode exists; left the story list unchanged.");
@@ -99,7 +99,7 @@ internal static partial class Program
             if(StopRequested || File.Exists("artifacts/macro.stop")) throw new OperationCanceledException();
             var activity=await Shell(ResumedActivity);
             if(activity.Contains("com.google.android.gms")) { await Shell("input keyevent 4"); await Task.Delay(1000); continue; }
-            await Snapshot("artifacts/current.png",true);
+            await Snapshot(quiet:true);
             using var screen=LoadCurrentScreen();
             bool Is(string name)=>Matches(screen,flow.Single(s=>s.Name==name));
             if(IsStoryReceipt(screen))

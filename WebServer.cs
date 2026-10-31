@@ -64,6 +64,7 @@ internal static partial class Program
         builder.WebHost.UseUrls($"http://{(listen is "0.0.0.0" or "*" or "+"?"0.0.0.0":listen)}:{port}");
         builder.Services.ConfigureHttpJsonOptions(o=>o.SerializerOptions.PropertyNamingPolicy=System.Text.Json.JsonNamingPolicy.CamelCase);
         var app=builder.Build();
+        StartFrameReceiver(app);
         app.UseExceptionHandler(error=>error.Run(async context=>
         {
             var ex=context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>()?.Error;
@@ -108,7 +109,7 @@ internal static partial class Program
         api.MapPost("/tab",(TabRequest request)=>{ SetTab(request.Emulator); return Results.Json(new { Tab=SavedTab }); });
         api.MapGet("/instances",async()=>Results.Json(await GetStatuses()));
         api.MapGet("/instances/{n:int}/log",(int n,int? lines)=>{ RequireInstance(n); return Results.Text(TailLog(n,Math.Clamp(lines??300,10,3000))); });
-        api.MapGet("/instances/{n:int}/frame",(int n)=>{ RequireInstance(n); var bytes=LastFrame(n); return bytes==null?Results.NotFound():Results.File(bytes,"image/png"); });
+        api.MapGet("/instances/{n:int}/frame",(int n,HttpContext context)=>{ RequireInstance(n); context.Response.Headers.CacheControl="no-store"; var bytes=LastFrame(n); return bytes==null?Results.NotFound():Results.Bytes(bytes,"image/png"); });
         api.MapGet("/instances/{n:int}/screen",async(int n,bool? save)=>Results.File(await CaptureScreen(n,save==true),"image/png"));
         api.MapPost("/instances/{n:int}/lock",(int n,LockRequest request)=>Ok(SetLock(n,request.Locked)));
         api.MapPost("/instances/{n:int}/start",async(int n,StartRequest request)=>Ok(await StartWorker(n,request)));
@@ -128,7 +129,7 @@ internal static partial class Program
         api.MapPost("/instances/{n:int}/invite/limit",(int n,InviteLimitRequest request)=>Ok(SetInviteLimit(n,request.Index,request.Limit)));
         api.MapPost("/instances/{n:int}/invite/queue/remove",(int n,QueueRemoveRequest request)=>Ok(RemoveQueuedInvite(n,request.Index)));
         api.MapPost("/instances/{n:int}/invite/clear",(int n)=>Ok(ClearInvite(n)));
-        api.MapGet("/instances/{n:int}/invites/{file}",(int n,string file)=>InviteImage(n,file) is { } bytes?Results.File(bytes,"image/png"):Results.NotFound());
+        api.MapGet("/instances/{n:int}/invites/{file}",(int n,string file)=>InviteImage(n,file) is { } bytes?Results.Bytes(bytes,bytes.AsSpan().StartsWith("RIFF"u8)?"image/webp":"image/png"):Results.NotFound());
         api.MapPost("/arrange",async()=>await VmArrange()?Ok(T("창을 정렬했습니다.","ウィンドウを整列しました。","Arranged the windows."))
             :Results.Json(new { message=T("정렬할 수 있는 켜진 VM이 없어요. 블루스택은 창 정렬을 지원하지 않아요.","整列できる起動中のVMがありません。BlueStacksはウィンドウ整列に対応していません。","No running VM can be arranged. BlueStacks cannot arrange windows.") },statusCode:400));
         api.MapPost("/validate",async()=>{ var result=await RunMacro("validate"); return result.Code==0?Ok(T("흐름 검증 통과","フロー検証に合格","Flow validation passed")):Results.Json(new { message=result.Output.Trim() },statusCode:400); });

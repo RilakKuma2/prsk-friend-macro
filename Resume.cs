@@ -122,7 +122,7 @@ internal static partial class Program
             var activity=await Shell(ResumedActivity);
             if(activity.Contains("com.google.android.gms") && (activity.Contains("MinuteMaid") || activity.Contains("SignIn")))
             { await Shell("input keyevent 4"); await Task.Delay(1500); continue; }
-            await Snapshot("artifacts/current.png",true);
+            await Snapshot(quiet:true);
             using var screen=LoadCurrentScreen();
             if(await DismissNotice(screen)) { await Task.Delay(700); continue; }
             bool Is(string name)=>Matches(screen,flow.Single(s=>s.Name==name));
@@ -140,7 +140,7 @@ internal static partial class Program
             else if(await DismissTutorialPanel(screen)) { }
             await Task.Delay(1000);
         }
-        throw new Exception(T("재개할 게임 화면을 확인하지 못했습니다. artifacts/current.png를 확인하세요. 계정 초기화는 하지 않았습니다.","再開するゲーム画面を確認できませんでした。artifacts/current.pngを確認してください。アカウント初期化は行っていません。","Could not recognize a game screen to resume from. Check artifacts/current.png. The account was not reset."));
+        throw new Exception(T("재개할 게임 화면을 확인하지 못했습니다. artifacts/error.webp를 확인하세요. 계정 초기화는 하지 않았습니다.","再開するゲーム画面を確認できませんでした。artifacts/error.webpを確認してください。アカウント初期化は行っていません。","Could not recognize a game screen to resume from. Check artifacts/error.webp. The account was not reset."));
     }
     // A dialog takes a moment to close. A second tap at its button would land on what is behind it, on the area a
     // character, which opens an area conversation: wait until it is gone instead (a dialog still open is tapped again later).
@@ -150,7 +150,7 @@ internal static partial class Program
         for(var check=0;check<6;check++)
         {
             await Task.Delay(500);
-            await Snapshot("artifacts/current.png",true);
+            await Snapshot(quiet:true);
             using var screen=LoadCurrentScreen();
             if(!open(screen)) return;
         }
@@ -220,7 +220,7 @@ internal static partial class Program
         while(DateTime.UtcNow<deadline)
         {
             if(StopRequested || File.Exists("artifacts/macro.stop")) throw new OperationCanceledException();
-            await Snapshot("artifacts/current.png",true);
+            await Snapshot(quiet:true);
             using var screen=LoadCurrentScreen();
             if(IsAutoEnd(screen))
             {

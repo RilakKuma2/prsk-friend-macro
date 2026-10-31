@@ -48,7 +48,7 @@ internal static partial class Program
             for(var attempt=0;attempt<30;attempt++)
             {
                 CheckPostStoryStop();
-                await Snapshot("artifacts/current.png",true);
+                await Snapshot(quiet:true);
                 using var screen=LoadCurrentScreen();
                 if(!IsEventStoryList(screen))
                 {
@@ -65,7 +65,7 @@ internal static partial class Program
             for(var page=0;page<30;page++)
             {
                 CheckPostStoryStop();
-                await Snapshot("artifacts/current.png",true);
+                await Snapshot(quiet:true);
                 using var screen=LoadCurrentScreen();
                 if(!IsEventStoryList(screen))
                 {
@@ -76,7 +76,7 @@ internal static partial class Program
                 episodes.UnionWith(ids);
                 var skip=FindBottomSkip(screen)>=0; var isUnread=HasUnreadStoryBadge(screen);
                 hasSkip|=skip; unread|=isUnread; pages++;
-                File.Copy("artifacts/current.png",$"artifacts/story-check/page-{page:D2}.png",true);
+                SaveCurrentEvidence($"artifacts/story-check/page-{page:D2}.webp");
                 Console.WriteLine($"Story page {page}: episodes={string.Join(',',ids)}, SKIP={skip}, unread={isUnread}.");
                 stable=previous!=null && DifferenceAt(screen,previous,500,85,390,415)<1?stable+1:0;
                 previous?.Dispose(); previous=screen.Clone(new Rectangle(500,85,390,415),screen.PixelFormat);
@@ -103,9 +103,9 @@ internal static partial class Program
     static bool RewardsEligible(string step)=>CurrentLoopInvite("artifacts")?.Result=="registered" && StepsForStage("eventstory").Any(s=>s.Name==step);
     static string SaveRewardsCapture()
     {
-        var image=$"{DateTime.Now:yyyyMMdd-HHmmss}-rewards.png";
+        var image=$"{DateTime.Now:yyyyMMdd-HHmmss}-rewards.webp";
         Directory.CreateDirectory("artifacts/invites");
-        File.Copy("artifacts/current.png",Path.Combine("artifacts/invites",image),true);
+        SaveCurrentEvidence(Path.Combine("artifacts/invites",image));
         return image;
     }
     static async Task<bool> CloseRewardsBeforeVerification(Bitmap screen,string step)
@@ -147,10 +147,10 @@ internal static partial class Program
     // Applies the reward-dialog success path to the current screen (for a run that stopped at the dialog).
     static async Task CloseRewardsNow()
     {
-        await Snapshot("artifacts/current.png",true);
+        await Snapshot(quiet:true);
         using(var screen=LoadCurrentScreen())
             if(!await UntilRewards(()=>CheckRewards(screen))) { Console.WriteLine("No received-items dialog on screen; nothing tapped."); return; }
-        await Task.Delay(800); await Snapshot("artifacts/current.png",true);
+        await Task.Delay(800); await Snapshot(quiet:true);
         using var after=LoadCurrentScreen();
         Console.WriteLine($"After closing: ReceivedItems={IsReceivedItems(after)}, Invitation={ReadInvitationState(after)}");
     }
@@ -166,7 +166,7 @@ internal static partial class Program
         var deadline=DateTime.UtcNow.AddMinutes(2);
         while(DateTime.UtcNow<deadline)
         {
-            CheckPostStoryStop(); await Snapshot("artifacts/current.png",true);
+            CheckPostStoryStop(); await Snapshot(quiet:true);
             using var screen=LoadCurrentScreen();
             await CheckRewards(screen);
             if(await DismissNotice(screen) || await DismissTutorialPanel(screen)) continue;
@@ -177,7 +177,7 @@ internal static partial class Program
                 stable=state==previous?stable+1:1; previous=state;
                 if(stable>=2)
                 {
-                    File.Copy("artifacts/current.png","artifacts/post-story-invitation.png",true);
+                    SaveCurrentEvidence("artifacts/post-story-invitation.webp");
                     Console.WriteLine("Invitation status verified from game: "+state);
                     return state;
                 }
@@ -195,8 +195,8 @@ internal static partial class Program
             }
             await Task.Delay(650);
         }
-        if(File.Exists("artifacts/current.png")) File.Copy("artifacts/current.png","artifacts/invitation-unverified.png",true);
-        throw new Exception("Invitation status could not be verified (screen saved to invitation-unverified.png). Game remains open.");
+        if(HasCurrentFrame) SaveCurrentEvidence("artifacts/invitation-unverified.webp");
+        throw new Exception("Invitation status could not be verified (screen saved to invitation-unverified.webp). Game remains open.");
     }
     static async Task<InvitationState> RegisterInvitation()
     {
@@ -240,7 +240,7 @@ internal static partial class Program
         }
         else if(invitation==InvitationState.Registered)
         {
-            await Snapshot("artifacts/current.png",true);
+            await Snapshot(quiet:true);
             using var screen=LoadCurrentScreen();
             var link=new Step("invite-event-link","templates/invite-event-link.png",815,258,781,248,70,20,"tap");
             if(!Matches(screen,link)) throw new Exception("Registered invitation confirmed, but event return link not recognized. Game remains open.");

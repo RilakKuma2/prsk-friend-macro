@@ -63,14 +63,14 @@ internal static partial class Program
         while(DateTime.UtcNow<deadline)
         {
             if(StopRequested || File.Exists("artifacts/macro.stop")) throw new OperationCanceledException();
-            await Snapshot("artifacts/current.png",true);
+            await Snapshot(quiet:true);
             using var screen=LoadCurrentScreen();
             if(IsGiftInbox(screen))
             {
                 if(++giftFrames>=2)
                 {
                     HomeGuidesCompleted=true;
-                    File.Copy("artifacts/current.png","artifacts/home-guides-cleared.png",true);
+                    SaveCurrentEvidence("artifacts/home-guides-cleared.webp");
                     Console.WriteLine($"Area tutorial complete: gift inbox confirmed after {taps} individual gift-position taps."); return;
                 }
                 await Task.Delay(500); continue;
@@ -127,7 +127,7 @@ internal static partial class Program
         for(var attempt=0;attempt<15;attempt++)
         {
             if(StopRequested || File.Exists("artifacts/macro.stop")) throw new OperationCanceledException();
-            await Snapshot("artifacts/current.png",true);
+            await Snapshot(quiet:true);
             using var screen=LoadCurrentScreen();
             if(!IsBaseDataDialog(screen))
             {
@@ -146,7 +146,8 @@ internal static partial class Program
             {
                 if(!Matches(screen,LoadSteps().Single(s=>s.Name=="base-data-download")))
                     throw new Exception("Download button not confirmed; no download submitted.");
-                File.Copy("artifacts/current.png","artifacts/basic-data-verified.png",true);
+                File.WriteAllText("artifacts/basic-data-verified.sent",DateTimeOffset.Now.ToString("O"));
+                SaveCurrentEvidence("artifacts/basic-data-verified.webp");
                 Console.WriteLine("Lower basic-data-only option selected and upper full-voice option unselected; submitting regardless of size.");
                 await Shell("input tap 570 406"); sent=true;
             }

@@ -20,7 +20,7 @@ internal static partial class Program
         while(DateTime.UtcNow<deadline)
         {
             if(StopRequested || File.Exists("artifacts/macro.stop")) throw new OperationCanceledException();
-            await Snapshot("artifacts/current.png",true);
+            await Snapshot(quiet:true);
             using var screen=LoadCurrentScreen();
             if(HasAreaGlobe(screen))
             {

@@ -14,10 +14,10 @@ internal static partial class Program
     {
         if(!IsStoryReceipt(screen)) return false;
         await Task.Delay(350);
-        await Snapshot("artifacts/current.png",true);
+        await Snapshot(quiet:true);
         using var verify=LoadCurrentScreen();
         if(!IsStoryReceipt(verify)) return false;
-        File.Copy("artifacts/current.png","artifacts/story-receipt-confirmed.png",true);
+        SaveCurrentEvidence("artifacts/story-receipt-confirmed.webp");
         Console.WriteLine("Story reward receipt confirmed: vertical crystal + music ticket + OK; closing once.");
         await Shell("input tap 480 492");
         await Task.Delay(700);
@@ -41,10 +41,10 @@ internal static partial class Program
     {
         if(!IsStoryReward(screen)) return false;
         await Task.Delay(350);
-        await Snapshot("artifacts/current.png",true);
+        await Snapshot(quiet:true);
         using var verify=LoadCurrentScreen();
         if(!IsStoryReward(verify)) return false;
-        File.Copy("artifacts/current.png","artifacts/story-reward-confirmed.png",true);
+        SaveCurrentEvidence("artifacts/story-reward-confirmed.webp");
         Console.WriteLine("Story reward confirmed: crystal AND music ticket; dismissing once.");
         await Shell("input tap 480 420");
         await Task.Delay(700);

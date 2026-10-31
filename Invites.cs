@@ -173,10 +173,10 @@ internal static partial class Program
     {
         Directory.CreateDirectory("artifacts/invites");
         string? image=null,nickname=null;
-        if(capture && File.Exists("artifacts/current.png"))
+        if(capture && HasCurrentFrame)
         {
-            image=$"{DateTime.Now:yyyyMMdd-HHmmss}-{InviteCode}.png";
-            File.Copy("artifacts/current.png",Path.Combine("artifacts/invites",image),true);
+            image=$"{DateTime.Now:yyyyMMdd-HHmmss}-{InviteCode}.webp";
+            SaveCurrentEvidence(Path.Combine("artifacts/invites",image));
             if(result=="confirming")
                 try { using var screen=LoadCurrentScreen(); nickname=await ReadInviteNickname(screen); }
                 catch(Exception ex) { Console.WriteLine("Nickname OCR skipped: "+ex.Message); }

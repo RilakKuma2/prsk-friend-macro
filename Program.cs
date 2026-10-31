@@ -88,6 +88,9 @@ internal static partial class Program
             if(args[0]=="web") { await RunWebCommand(args); return 0; }
             if(args[0]=="provision") { await RunProvision(); return 0; }
             if(args[0]=="check-vms") { foreach(var n in AllowedInstances.Keys) { string game; try { game=(await Run(AdbOf(n),"-s",SerialOf(n),"shell",$"pm path {Package}")).Trim().Replace('\n',' '); } catch(Exception ex) { game="ERR "+ex.Message; } Console.WriteLine($"{n} {AllowedInstances[n]} running={await IsVmRunning(n)} game={game}"); } return 0; }
+            if(args[0]=="check-captures") { await VerifyCaptureStorage(); return 0; }
+            if(args[0]=="check-frame-publish") { Instance=int.Parse(args.ElementAtOrDefault(2)??"1"); using var frame=new FileStream(args[1],FileMode.Open); var bytes=new byte[frame.Length]; await frame.ReadExactlyAsync(bytes); PublishCurrentFrame(bytes); return 0; }
+            StartEvidenceMaintenance();
             if(args[0]=="check-checkpoint") { await VerifyCheckpointContention(); return 0; }
             if(args[0]=="check-story-reward") { VerifyStoryReward(args[1]); return 0; }
             if(args[0]=="check-story-receipt") { VerifyStoryReceipt(args[1]); return 0; }
@@ -222,13 +225,13 @@ internal static partial class Program
                     break;
                 case "snap": await Snapshot(args.ElementAtOrDefault(1) ?? "artifacts/current.png"); break;
                 case "exit-area-chat":
-                    ActiveStep="music-area-right"; await Snapshot("artifacts/current.png",true);
+                    ActiveStep="music-area-right"; await Snapshot(quiet:true);
                     using(var shot=LoadCurrentScreen()) await EscapeUnexpectedStory(shot,ActiveStep);
                     break;
                 case "tap":
                     await Shell($"input tap {int.Parse(args[1])} {int.Parse(args[2])}");
                     await Task.Delay(1000);
-                    await Snapshot("artifacts/current.png");
+                    await Snapshot();
                     break;
                 case "launch":
                     Console.WriteLine(await Shell($"monkey -p {Package} -c android.intent.category.LAUNCHER 1")); break;
@@ -237,10 +240,10 @@ internal static partial class Program
                 case "record": await Record(args); break;
                 case "skip-gacha": await SkipGacha(); break;
                 case "read-story": await ReadStory(); break;
-                case "ocr": Console.WriteLine(await Ocr("artifacts/current.png")); break;
+                case "ocr": await Snapshot(); await File.WriteAllBytesAsync("artifacts/ocr-region.png",CurrentFrameBytes()); Console.WriteLine(await Ocr("artifacts/ocr-region.png")); break;
                 case "select-memories": await SelectMemories(); break;
                 case "stop-story": await Shell("touch /data/local/tmp/sekai-story.stop"); await File.WriteAllTextAsync("artifacts/story.stop", "stop"); break;
-                case "swipe": await Shell($"input swipe {int.Parse(args[1])} {int.Parse(args[2])} {int.Parse(args[3])} {int.Parse(args[4])} 500"); await Task.Delay(800); await Snapshot("artifacts/current.png"); break;
+                case "swipe": await Shell($"input swipe {int.Parse(args[1])} {int.Parse(args[2])} {int.Parse(args[3])} {int.Parse(args[4])} 500"); await Task.Delay(800); await Snapshot(); break;
                 case "tutorial": if(From!=null) await Tutorial(); else await ExecuteStages(); break;
                 case "stage": await ExecuteStages(); break;
                 case "register-invite": await RegisterAwaitingInvitation(); break;
@@ -252,7 +255,8 @@ internal static partial class Program
         }
         // A stop asked from the panel is not a failure: it is logged without the exception, so the card does not show one.
         catch(OperationCanceledException ex) when(StopRequested || File.Exists("artifacts/macro.stop")) { Console.WriteLine(ex.Message.StartsWith("Stopped")?ex.Message:"Stopped: "+ex.Message); return 1; }
-        catch(Exception ex) { Console.Error.WriteLine(ex.ToString()); return 1; }
+        catch(Exception ex) { if(HasCurrentFrame) SaveCurrentEvidence("artifacts/error.webp"); Console.Error.WriteLine(ex.ToString()); return 1; }
+        finally { if(FrameSender!=null) await FrameSender.DisposeAsync(); CurrentFrames.Clear(); }
     }
     static List<Step> StepsForStage(string name)
     {
@@ -402,7 +406,7 @@ internal static partial class Program
             {
                 if(StopRequested) throw new OperationCanceledException();
                 await Shell($"input tap 60 {y}"); await Task.Delay(700);
-                await Snapshot("artifacts/current.png",true);
+                await Snapshot(quiet:true);
                 using var screen=LoadCurrentScreen();
                 // User rule: first banner from the top with the ordinary ten-draw button.
                 // Compare only the small lower-right button; ignore unit artwork and names.
@@ -412,10 +416,10 @@ internal static partial class Program
                 Console.WriteLine($"Gacha candidate page {page}, row {y}: ordinary-button difference={difference:F2}");
                 if(difference<12)
                 {
-                    await Task.Delay(400); await Snapshot("artifacts/gacha-verify.png",true);
-                    using var verify=new Bitmap("artifacts/gacha-verify.png");
+                    await Task.Delay(400); await Snapshot(quiet:true);
+                    using var verify=LoadCurrentScreen();
                     if(!Matches(verify,freeDraw)) continue;
-                    File.Copy("artifacts/current.png","artifacts/selected-memories.png",true);
+                    SaveCurrentEvidence("artifacts/selected-memories.webp");
                     Console.WriteLine("Selected the topmost Memories banner with the ordinary 3000-crystal ten-draw button. No draw submitted."); return;
                 }
             }
@@ -456,7 +460,7 @@ internal static partial class Program
         Console.WriteLine("After: " + after);
         if(before!=after) throw new Exception("Restored folder size differs; inspect before launching.");
         foreach(var name in new[]{"memories-confirm-once","guaranteed-confirm-once"}) File.Delete($"artifacts/{name}.sent");
-        File.Delete("artifacts/basic-data-verified.png");
+        EvidenceArchive.Value.ResetBasicDataVerification("artifacts");
         await WriteLoop();
         if(StopRequested) throw new OperationCanceledException("Stopped after restoring external data.");
     }
@@ -466,23 +470,24 @@ internal static partial class Program
         if(!result.Contains("RESTORED")) throw new Exception("Restore stopped. Preserved data remains at " + Saved + "; inspect before retry. No files overwritten.");
         Console.WriteLine("External data folder restored.");
     }
-    static async Task Snapshot(string path, bool quiet=false)
+    static async Task Snapshot(string? path=null, bool quiet=false, Func<Task<byte[]>>? capture=null)
     {
         for(var attempt=0;attempt<3;attempt++)
         {
             try
             {
-                var bytes=await RunBytes(Adb,"-s",Serial,"exec-out","screencap","-p");
-                if(bytes.Length<8 || bytes[0]!=137 || bytes[1]!=80) throw new Exception("Invalid screenshot output.");
+                var bytes=await (capture?.Invoke() ?? RunBytes(Adb,"-s",Serial,"exec-out","screencap","-p"));
+                ValidateFrame(bytes);
                 using(var stream=new MemoryStream(bytes))
-                using(var decoded=new Bitmap(stream))
+                using(var decoded=new Bitmap(stream)) _=decoded.GetPixel(959,539);
+                // Only an explicitly requested CLI export is written as PNG.
+                if(path!=null)
                 {
-                    if(decoded.Width!=960 || decoded.Height!=540) throw new Exception($"Transient screenshot size {decoded.Width}x{decoded.Height}; recapturing.");
-                    _=decoded.GetPixel(959,539);
+                    await File.WriteAllBytesAsync(path+".pending",bytes);
+                    File.Move(path+".pending",path,true);
+                    if(!quiet) Console.WriteLine(Path.GetFullPath(path));
                 }
-                await File.WriteAllBytesAsync(path+".pending",bytes);
-                File.Move(path+".pending",path,true);
-                if(!quiet) Console.WriteLine(Path.GetFullPath(path));
+                PublishCurrentFrame(bytes);
                 return;
             }
             catch(Exception ex) when(attempt<2 && !StopRequested) { Console.WriteLine($"Recapturing frame ({attempt+1}/3): {ex.Message}"); await Task.Delay(700); }
@@ -500,10 +505,10 @@ internal static partial class Program
         var height=args.Length>7?int.Parse(args[7]):40;
         var action=args.ElementAtOrDefault(8)??"tap";
         Directory.CreateDirectory("templates");
-        await Snapshot("artifacts/record.png");
+        await Snapshot();
         Directory.CreateDirectory("artifacts/frames");
-        File.Copy("artifacts/record.png",$"artifacts/frames/{name}.png",true);
-        using(var screen=new Bitmap("artifacts/record.png"))
+        SaveCurrentEvidence($"artifacts/frames/{name}.webp");
+        using(var screen=LoadCurrentScreen())
         using(var crop=screen.Clone(new Rectangle(left,top,width,height),PixelFormat.Format24bppRgb))
             crop.Save($"templates/{name}.png",ImageFormat.Png);
         var steps=LoadSteps();
@@ -521,7 +526,7 @@ internal static partial class Program
         else if(action=="dismiss-unlocks") await DismissRepeated(step);
         if(action=="gacha-once") await SkipGacha();
         await Task.Delay(1500);
-        await Snapshot("artifacts/current.png");
+        await Snapshot();
     }
     static async Task Tutorial(List<Step>? stageSteps=null)
     {
@@ -549,7 +554,7 @@ internal static partial class Program
             await SaveCheckpoint(step.Name,"waiting");
             if(HomeGuidesCompleted && (step.Name.StartsWith("home-guide-") || step.Name is "login-bonus" or "campaign-bonus" or "beginner-bonus" or "gift-open"))
             { await SaveCheckpoint(step.Name,"executed"); continue; }
-            if(File.Exists("artifacts/basic-data-verified.png") && (step.Name.StartsWith("opening-") || step.Name is "base-data-only" or "base-data-download"))
+            if(BasicDataVerified && (step.Name.StartsWith("opening-") || step.Name is "base-data-only" or "base-data-download"))
             { await SaveCheckpoint(step.Name,"executed"); continue; }
             if(step.Action=="dismiss-auto-end") { await DismissAutoEnd(); await SaveCheckpoint(step.Name,"executed"); previous=null; continue; }
             if(step.Action=="dismiss-unlocks") { await DismissRepeated(step); previous=step; continue; }
@@ -603,7 +608,7 @@ internal static partial class Program
                     { await Shell("input keyevent 4"); await Task.Delay(1200); }
                     lastActivityCheck=DateTime.UtcNow;
                 }
-                await Snapshot("artifacts/current.png",true);
+                await Snapshot(quiet:true);
                 double difference;
                 using(var screen=LoadCurrentScreen())
                 {
@@ -627,7 +632,7 @@ internal static partial class Program
                     // within about two minutes of launch; a launch still short of it after three reboots the instance.
                     if(step.Name is "google-back" or "title-start" && startupRestarts<2 && DateTime.UtcNow-waitStarted>TimeSpan.FromMinutes(3))
                     {
-                        File.Copy("artifacts/current.png",$"artifacts/startup-stall-{++startupRestarts}.png",true);
+                        SaveCurrentEvidence($"artifacts/startup-stall-{++startupRestarts}.webp");
                         Console.WriteLine($"Title not shown 3 minutes after launch ({startupRestarts}/2).");
                         await RebootInstance();
                         waitStarted=DateTime.UtcNow; deadline=waitStarted.AddMinutes(10); lastActivityCheck=DateTime.MinValue; previous=null;
@@ -651,11 +656,11 @@ internal static partial class Program
                         lastRecovery=DateTime.UtcNow;
                         var actual=FindRecoveryStep(screen,step.Name,selectedSteps);
                         Console.WriteLine($"State audit: waiting={step.Name}, current={actual??"unrecognized"}.");
-                        File.Copy("artifacts/current.png","artifacts/state-audit.png",true);
+                        SaveCurrentEvidence("artifacts/state-audit.webp");
                         var target=actual==null?-1:selectedSteps.FindIndex(s=>s.Name==actual);
                         if(target>=0 && target!=stepIndex)
                         {
-                            await Task.Delay(500); await Snapshot("artifacts/current.png",true);
+                            await Task.Delay(500); await Snapshot(quiet:true);
                             using var verify=LoadCurrentScreen();
                             if(FindRecoveryStep(verify,step.Name,selectedSteps)==actual)
                             {
@@ -710,7 +715,7 @@ internal static partial class Program
                     if(step.Name=="members-open" && difference>=12 && DateTime.UtcNow-lastRetry>TimeSpan.FromSeconds(4) && Matches(screen,steps.Single(s=>s.Name=="memories-tab")))
                     { await Shell("input tap 32 32"); lastRetry=DateTime.UtcNow; continue; }
                     if(step.Name is "base-data-only" or "base-data-download")
-                        if(File.Exists("artifacts/basic-data-verified.png") || IsAreaMain(screen)) skipOptional=true;
+                        if(BasicDataVerified || IsAreaMain(screen)) skipOptional=true;
                     if(step.Name=="song-default" && IsAreaMain(screen)) skipOptional=true;
                     // A daily reward may interrupt any stage when the server date changes.
                     if(difference>=12 && step.Name is not ("campaign-bonus" or "event-intro-reward") && Matches(screen,steps.Single(s=>s.Name=="campaign-bonus")))
@@ -777,7 +782,7 @@ internal static partial class Program
                     if(activity.Contains(Package)) await Shell("input tap 480 270");
                     lastMovieTap=DateTime.UtcNow;
                 }
-                if(DateTime.UtcNow>deadline) throw new Exception($"Timed out waiting for {step.Name}. Screenshot: artifacts/current.png. No blind input sent.");
+                if(DateTime.UtcNow>deadline) throw new Exception($"Timed out waiting for {step.Name}. Screenshot: artifacts/error.webp. No blind input sent.");
                 await Task.Delay(1500);
             }
             if(recovered) continue;
@@ -789,21 +794,21 @@ internal static partial class Program
             {
                 using var screen=LoadCurrentScreen();
                 if(!StoryContinuousChecked(screen)) throw new Exception("Continuous story reading is not checked; playback was not started.");
-                File.Copy("artifacts/current.png","artifacts/story-continuous-verified.png",true);
+                SaveCurrentEvidence("artifacts/story-continuous-verified.webp");
                 Console.WriteLine("Continuous story reading verified; starting without voice download.");
             }
-            if(step.Name=="deck-complete") File.Copy("artifacts/current.png","artifacts/event-deck-result.png",true);
+            if(step.Name=="deck-complete") SaveCurrentEvidence("artifacts/event-deck-result.webp");
             if(step.Name=="deck-apply")
             {
                 using var screen=LoadCurrentScreen();
                 bool Selected(int x,int y) { var p=screen.GetPixel(x,y); return p.G>170 && p.B>140 && p.R<170; }
                 if(!Selected(629,139) || !Selected(242,222)) throw new Exception("Event member and recommended type are not both selected. Deck was not applied.");
-                File.Copy("artifacts/current.png","artifacts/event-deck-settings.png",true);
+                SaveCurrentEvidence("artifacts/event-deck-settings.webp");
             }
             if(step.Action=="stop")
             {
                 if(step.Name=="event-stories-complete" && !await FinishEventStories()) { StageIncomplete=true; return; }
-                File.Copy("artifacts/current.png","artifacts/completed.png",true);
+                SaveCurrentEvidence("artifacts/completed.webp");
                 Console.WriteLine("Complete: "+step.Name); return;
             }
             if(step.Name is "unit-select" or "unit-color" or "unit-scenery")
@@ -857,7 +862,7 @@ internal static partial class Program
             // Deliberately one screenshot each minute, not per song/frame.
             for(var i=0;i<60 && !StopRequested;i++) { if(File.Exists("artifacts/macro.stop")) StopRequested=true; await Task.Delay(1000); }
             if(StopRequested) throw new OperationCanceledException();
-            await Guard(); await Snapshot("artifacts/current.png",true);
+            await Guard(); await Snapshot(quiet:true);
             using var screen=LoadCurrentScreen();
             if(await DismissNotice(screen)) continue;
             if(IsAutoEnd(screen)) { Console.WriteLine("Auto completion detected from Miku face fragment."); await SaveCheckpoint("auto-live-started","executed"); return; }
@@ -899,7 +904,7 @@ internal static partial class Program
             if(StopRequested || File.Exists("artifacts/story.stop") || File.Exists("artifacts/macro.stop")) throw new OperationCanceledException();
             var bytes=await RunBytes(Adb,"-s",Serial,"exec-out","screencap","-p");
             using var stream=new MemoryStream(bytes); using var screen=new Bitmap(stream);
-            await File.WriteAllBytesAsync("artifacts/current.png",bytes);
+            PublishCurrentFrame(bytes);
             if(await DismissStoryReceipt(screen)) { lastKnown=DateTime.UtcNow; listFrames=0; continue; }
             if(await DismissNotice(screen)) { lastKnown=DateTime.UtcNow; continue; }
             // With the code entered beforehand, this dialog opens once the stories are read: capture and close it,
@@ -923,7 +928,7 @@ internal static partial class Program
             else
             {
                 listFrames=0;
-                if(DateTime.UtcNow-lastKnown>TimeSpan.FromSeconds(45)) throw new Exception("Unknown story screen for 45 seconds; paused. See artifacts/current.png.");
+                if(DateTime.UtcNow-lastKnown>TimeSpan.FromSeconds(45)) throw new Exception("Unknown story screen for 45 seconds; paused. See artifacts/error.webp.");
             }
             await Task.Delay(120);
         }
@@ -985,7 +990,7 @@ internal static partial class Program
             while(!tapping.IsCompleted && !StopRequested)
             {
                 await Task.Delay(350);
-                await Snapshot("artifacts/current.png",true);
+                await Snapshot(quiet:true);
                 using var screen=LoadCurrentScreen();
                 if(IsStoryChoice(screen)) { Console.WriteLine("Story choice shown; picking the first one."); await Shell($"input tap {StoryChoiceX} 270"); continue; }
                 if(Matches(screen,menu) || IsMovieConfirm(screen) || IsBaseDataDialog(screen) || IsNameDialog(screen) || afterStory!=null && Matches(screen,afterStory))
@@ -1101,7 +1106,7 @@ internal static partial class Program
         for(var attempt=0;attempt<12;attempt++)
         {
             if(StopRequested) throw new OperationCanceledException();
-            await Snapshot("artifacts/current.png",true);
+            await Snapshot(quiet:true);
             using var screen=LoadCurrentScreen();
             if(await EscapeUnexpectedStory(screen,"music-shop-open")) continue;
             var best=FindMusicShop(screen,step);
@@ -1116,7 +1121,7 @@ internal static partial class Program
         for(var attempt=0;attempt<40;attempt++)
         {
             if(StopRequested) throw new OperationCanceledException();
-            await Snapshot("artifacts/current.png",true);
+            await Snapshot(quiet:true);
             using var screen=LoadCurrentScreen();
             if(Matches(screen,LoadSteps().Single(s=>s.Name=="live-song-search-focus"))) return;
             if(Matches(screen,LoadSteps().Single(s=>s.Name=="solo-live-open"))) return;
@@ -1167,7 +1172,7 @@ internal static partial class Program
         while(DateTime.UtcNow<deadline)
         {
             if(StopRequested || File.Exists("artifacts/macro.stop")) throw new OperationCanceledException();
-            await Snapshot("artifacts/current.png",true);
+            await Snapshot(quiet:true);
             using var screen=LoadCurrentScreen();
             if(await DismissStoryReceipt(screen)) { listFrames=buttonFrames=0; continue; }
             if(await CloseRewardsBeforeVerification(screen,"event-stories-complete")) { listFrames=buttonFrames=0; continue; }
@@ -1200,7 +1205,7 @@ internal static partial class Program
         while(DateTime.UtcNow<deadline)
         {
             if(StopRequested) throw new OperationCanceledException();
-            await Snapshot("artifacts/current.png",true);
+            await Snapshot(quiet:true);
             using var screen=LoadCurrentScreen();
             if(after?.Name=="event-story-open" && await DismissStoryReward(screen)) continue;
             if(await DismissTutorialPanel(screen)) { seen=true; absent=0; }
@@ -1331,7 +1336,8 @@ internal static partial class Program
             var bytes=await RunBytes(Adb,"-s",Serial,"exec-out","screencap","-p");
             using var stream=new MemoryStream(bytes);
             using var screen=new Bitmap(stream);
-            if(Matches(screen,result)) { await File.WriteAllBytesAsync("artifacts/gacha-result.png",bytes); Console.WriteLine("Gacha result reached."); return; }
+            PublishCurrentFrame(bytes);
+            if(Matches(screen,result)) { SaveEvidenceImage(bytes,"artifacts/gacha-result.webp"); Console.WriteLine("Gacha result reached."); return; }
             if(Matches(screen,skip) && DateTime.UtcNow-lastTap>TimeSpan.FromMilliseconds(600))
             { await Shell("input tap 928 32"); lastTap=DateTime.UtcNow; Console.WriteLine("Skipped gacha animation."); }
             else if(DateTime.UtcNow-lastNeutralTap>TimeSpan.FromSeconds(3))

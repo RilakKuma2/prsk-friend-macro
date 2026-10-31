@@ -8,7 +8,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <!-- The release tag is v$(Version); the app compares it with the latest GitHub release on start. -->
-    <Version>1.0.3</Version>
+    <Version>1.0.4</Version>
   </PropertyGroup>
   <PropertyGroup Condition="$(TargetFramework.Contains('-windows'))">
     <OutputType>WinExe</OutputType>
@@ -21,6 +21,8 @@
   </PropertyGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="SkiaSharp" Version="4.154.0" />
+    <Content Include="third-party\SkiaSharp\*.txt" CopyToOutputDirectory="PreserveNewest" />
     <EmbeddedResource Include="web\index.html" LogicalName="web.index.html" />
     <EmbeddedResource Include="web\units\*.webp" LogicalName="web.units.%(Filename)%(Extension)" />
   </ItemGroup>
@@ -33,4 +35,7 @@
     <!-- System.Drawing's Bitmap is Windows-only; MacImaging.cs provides the same calls with its own PNG reader. -->
     <Compile Remove="Gui.cs;Updater.cs;BlueStacks5.cs" />
   </ItemGroup>
+  <Target Name="RemoveUnusedWebViewWpf" BeforeTargets="ResolveAssemblyReferences">
+    <ItemGroup><Reference Remove="@(Reference)" Condition="'%(Reference.Filename)' == 'Microsoft.Web.WebView2.Wpf'" /></ItemGroup>
+  </Target>
 </Project>

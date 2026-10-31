@@ -13,7 +13,7 @@ internal static partial class Program
         // This timer belongs to the observed screen, so a stage audit cannot reset it.
         if(now-TitleVisibleSince.Value<TimeSpan.FromSeconds(45)) return false;
         if(TitleRestartCount>=2) throw new Exception("Title remained unresponsive after two game restarts. Latest screenshot saved; no account reset performed by recovery.");
-        File.Copy("artifacts/current.png",$"artifacts/title-stall-{TitleRestartCount+1}.png",true);
+        SaveCurrentEvidence($"artifacts/title-stall-{TitleRestartCount+1}.webp");
         Console.WriteLine($"Title unresponsive for 45 seconds; restarting only instance {Instance}'s game ({++TitleRestartCount}/2). Account data retained.");
         await Shell($"am force-stop {Package}");
         await Shell($"monkey -p {Package} -c android.intent.category.LAUNCHER 1");

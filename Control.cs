@@ -109,6 +109,7 @@ internal static partial class Program
     static async Task<List<InstanceStatus>> GetStatuses()
     {
         var rows=await VmRows();
+        CurrentFrames.Keep(AllowedInstances.Keys);
         var flow=LoadFlowCached();
         var stages=LoadStagesCached();
         var list=new List<InstanceStatus>();
@@ -131,7 +132,7 @@ internal static partial class Program
             list.Add(new InstanceStatus(instance,name,vm,IsWorkerRunning(instance),PendingWork.GetValueOrDefault(instance)??ProvisionPending(instance),
                 stage,stages.FirstOrDefault(s=>s.Name==stage) is { } stageInfo?StageTitle(stageInfo):null,Str(progress,"Status"),step,Str(checkpoint,"Status"),updated,
                 step==null?-1:flow.FindIndex(s=>s.Name==step),flow.Count,last,
-                log.Any(l=>l.Contains("Exception") || l.Contains("Timed out")),File.Exists(Path.Combine(dir,"current.png")),
+                log.Any(l=>l.Contains("Exception") || l.Contains("Timed out")),CurrentFrames.Read(instance)!=null,
                 invite,uses,invite==null?null:InviteLimit(invite),invite==null?null:owners.GetValueOrDefault(invite.Code),queue.Count,
                 InviteCapacity(invite,uses,queue),InviteCapacity(null,0,queue),CurrentLoopInvite(dir),ReadLoop(dir),IsLocked(instance),RunningUnit(instance)));
         }
@@ -373,25 +374,17 @@ internal static partial class Program
     {
         await RequireVm(instance);
         var bytes=await RunBytes(AdbOf(instance),"-s",SerialOf(instance),"exec-out","screencap","-p");
-        if(bytes.Length<8 || bytes[0]!=137 || bytes[1]!=80) throw new Exception(T("화면 캡쳐 결과가 올바르지 않습니다.","画面キャプチャの結果が正しくありません。","The screen capture was invalid."));
+        ValidateFrame(bytes);
+        CurrentFrames.Publish(instance,bytes);
         if(save)
         {
             var dir=Path.Combine(ArtifactsDir(instance),"captures"); Directory.CreateDirectory(dir);
-            await File.WriteAllBytesAsync(Path.Combine(dir,$"{DateTime.Now:yyyyMMdd-HHmmss}.png"),bytes);
+            SaveEvidenceImage(bytes,Path.Combine(dir,$"{DateTime.Now:yyyyMMdd-HHmmss}.webp"));
         }
         return bytes;
     }
 
-    static byte[]? LastFrame(int instance)
-    {
-        var path=Path.Combine(ArtifactsDir(instance),"current.png");
-        try
-        {
-            using var stream=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete);
-            using var copy=new MemoryStream(); stream.CopyTo(copy); return copy.ToArray();
-        }
-        catch { return null; }
-    }
+    static byte[]? LastFrame(int instance)=>CurrentFrames.Read(instance)?.Png;
 
     // Manual input is only accepted while no worker owns the instance, and the lock is held during the input.
     static async Task<string> ManualInput(int instance,string command)
@@ -558,8 +551,9 @@ internal static partial class Program
     static byte[]? InviteImage(int instance,string file)
     {
         RequireInstance(instance);
-        if(!System.Text.RegularExpressions.Regex.IsMatch(file,@"^[\w-]+\.png$")) return null;
+        if(!System.Text.RegularExpressions.Regex.IsMatch(file,@"^[\w-]+\.(?:png|webp)$")) return null;
         var path=Path.Combine(ArtifactsDir(instance),"invites",file);
+        if(!File.Exists(path)) path=Path.ChangeExtension(path,".webp");
         return File.Exists(path)?File.ReadAllBytes(path):null;
     }
 

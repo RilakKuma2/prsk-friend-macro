@@ -126,7 +126,7 @@ internal static partial class Program
             var activity=await Shell(ResumedActivity);
             if(activity.Contains("com.google.android.gms") && (activity.Contains("MinuteMaid") || activity.Contains("SignIn")))
             { await Shell("input keyevent 4"); await Task.Delay(1500); continue; }
-            await Snapshot("artifacts/current.png",true);
+            await Snapshot(quiet:true);
             using(var screen=LoadCurrentScreen())
             {
                 if(IsAreaMain(screen)) { Console.WriteLine("Home screen reached after the reboot."); return; }
