@@ -84,6 +84,16 @@ internal static partial class Program
 
         var api=app.MapGroup("/api");
         api.MapGet("/meta",()=>Results.Json(Meta()));
+        api.MapGet("/update",async()=>Results.Json(await ReadUpdateInfo()));
+        api.MapPost("/apply-update",async(HttpContext context)=>
+        {
+            if(context.Connection.RemoteIpAddress is not { } ip || !IPAddress.IsLoopback(ip))
+                return Results.Json(new { message=T("이 PC에서만 업데이트할 수 있습니다.","このPCでのみ更新できます。","Only this PC can install updates.") },statusCode:403);
+            if(MacAppBundlePath() is not { } bundle)
+                return Results.Json(new { message=T("배포용 앱(SekaiMacro.app)에서만 자동 업데이트할 수 있습니다.","配布版アプリ(SekaiMacro.app)でのみ自動更新できます。","Self-update is only available in the packaged SekaiMacro.app.") },statusCode:400);
+            await ApplyMacSelfUpdate(bundle);
+            return Ok(T("업데이트를 설치하고 앱을 다시 시작합니다.","アップデートをインストールしてアプリを再起動します。","Installing update and restarting the app."));
+        });
         api.MapGet("/event",async()=>Results.Json(await GetCurrentEvent()));
         // The VM sheet shows one emulator: its folder, version, links and the free space where its VMs live.
         api.MapGet("/vms",(string? emulator)=>

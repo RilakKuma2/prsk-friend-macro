@@ -10,13 +10,16 @@ internal static partial class Program
     record InstanceStatus(int Instance,string Name,bool VmRunning,bool WorkerRunning,string? Pending,
         string? Stage,string? StageTitle,string? StageStatus,string? Step,string? StepStatus,DateTimeOffset? Updated,
         int StepIndex,int StepCount,string? LastLog,bool HasError,bool HasFrame,InviteSetting? Invite,int InviteUses,int? InviteLimit,string? InviteOwner,int QueueCount,int? InviteCapacity,int? QueueCapacity,
-        InviteRecord? LoopInvite,LoopState? Loop,bool Locked,string? RunUnit);
+        InviteRecord? LoopInvite,LoopState? Loop,bool Locked,string? RunUnit,long NoticeId=0,string? Notice=null);
     // Invite: "keep" leaves the codes as they are, "set" replaces the active code, "queue" appends to the queue,
     // "clear" removes the active code and the queue.
     record StartRequest(string Mode,string? From,string[]? Stages,string? Unit,string? Code,bool BootVm,int Loops=1,
         string? Invite=null,string? InviteCode=null,string? InviteMode=null,int? InviteLimit=null);
 
     static readonly ConcurrentDictionary<int,string> PendingWork=new();
+    static readonly ConcurrentDictionary<int,(long Id,DateTimeOffset At,string Text)> InstanceNotices=new();
+    static long NextNoticeId;
+    static void RecordNotice(int instance,string text)=>InstanceNotices[instance]=(Interlocked.Increment(ref NextNoticeId),DateTimeOffset.UtcNow,text);
     static readonly SemaphoreSlim VmListLock=new(1,1);
     static (DateTime At,Dictionary<int,string[]> Rows) VmListCache=(DateTime.MinValue,[]);
 
@@ -129,12 +132,13 @@ internal static partial class Program
             var vm=rows.TryGetValue(instance,out var row) && row[1]==name && row[4]=="1";
             var invite=ReadInviteSetting(dir); var queue=ReadInviteQueue(dir);
             var uses=invite==null?0:ActiveInviteUses(dir,invite);
+            var notice=InstanceNotices.TryGetValue(instance,out var n) && DateTimeOffset.UtcNow-n.At<TimeSpan.FromSeconds(15)?n:(0,DateTimeOffset.MinValue,(string?)null);
             list.Add(new InstanceStatus(instance,name,vm,IsWorkerRunning(instance),PendingWork.GetValueOrDefault(instance)??ProvisionPending(instance),
                 stage,stages.FirstOrDefault(s=>s.Name==stage) is { } stageInfo?StageTitle(stageInfo):null,Str(progress,"Status"),step,Str(checkpoint,"Status"),updated,
                 step==null?-1:flow.FindIndex(s=>s.Name==step),flow.Count,last,
                 log.Any(l=>l.Contains("Exception") || l.Contains("Timed out")),CurrentFrames.Read(instance)!=null,
                 invite,uses,invite==null?null:InviteLimit(invite),invite==null?null:owners.GetValueOrDefault(invite.Code),queue.Count,
-                InviteCapacity(invite,uses,queue),InviteCapacity(null,0,queue),CurrentLoopInvite(dir),ReadLoop(dir),IsLocked(instance),RunningUnit(instance)));
+                InviteCapacity(invite,uses,queue),InviteCapacity(null,0,queue),CurrentLoopInvite(dir),ReadLoop(dir),IsLocked(instance),RunningUnit(instance),notice.Item1,notice.Item3));
         }
         return list;
     }
@@ -164,7 +168,7 @@ internal static partial class Program
         {
             Instances=AllowedInstances.Select(p=>new { Instance=p.Key,Name=p.Value }),
             Stages=LoadStagesCached().Select(s=>new { s.Name,Title=StageTitle(s),s.Start,s.End }),
-            Language,LdPlayer=EmulatorFolder,Emulator=IsBlueStacks?"bluestacks":"ldplayer",
+            Version=CurrentVersion.ToString(),Language,LdPlayer=EmulatorFolder,Emulator=IsBlueStacks?"bluestacks":"ldplayer",
             // One tab per installed emulator; instance numbers from Base to Base+999 belong to it.
             Emulators=Emulators.Select(e=>new { e.Key,e.Base,Label=EmulatorLabel(e.Key),Installed=FolderOf(e.Key)!=null,
                 CanManage=CanManageVms(e.Key),CanArrange=CanArrange(e.Key) }),
@@ -248,6 +252,39 @@ internal static partial class Program
             });
             return T($"{VmNo(instance)}번 VM을 켜는 중입니다. 부팅이 끝나면 자동으로 시작합니다.",$"{VmNo(instance)}番のVMを起動中です。起動が終わると自動で開始します。",$"Booting {VmHash(instance)} VM. The macro starts when it is ready.");
         }
+        await ConnectVm(instance);
+        if(!await LiveResolutionOk(instance))
+        {
+            if(!FixesSettings(instance))
+                throw new InvalidOperationException(T(
+                    $"{VmNo(instance)}번 해상도·DPI가 960×540 · DPI 160이 아닙니다. 실행 중인 다른 블루스택 창을 모두 닫으면 자동으로 설정을 변경하고 재시작합니다.",
+                    $"{VmNo(instance)}番の解像度・DPIが960×540・DPI 160ではありません。起動中の他のBlueStacksウィンドウをすべて閉じると自動で設定を変更して再起動します。",
+                    $"{VmHash(instance)} resolution/DPI is not 960×540 · DPI 160. Close other running BlueStacks windows so the macro can update settings and restart automatically."));
+            var notice=T(
+                $"{VmNo(instance)}번 해상도·DPI가 맞지 않아 960×540 · DPI 160으로 설정을 자동 변경하고 앱플레이어를 재시작한 뒤 시작합니다.",
+                $"{VmNo(instance)}番の解像度・DPIが合わないため、960×540・DPI 160に設定を自動変更してエミュレーターを再起動してから開始します。",
+                $"{VmHash(instance)} resolution/DPI did not match; updating settings to 960×540 · DPI 160, restarting the emulator, and then starting.");
+            AppendControlLog(instance,notice);
+            RecordNotice(instance,notice);
+            PendingWork[instance]=T("해상도·DPI 변경 후 재시작 중","解像度・DPI変更後に再起動中","Fixing resolution/DPI & restarting");
+            _=Task.Run(async()=>
+            {
+                try
+                {
+                    await QuitVm(instance);
+                    await BootVm(instance);
+                    if(request.Mode!="run")
+                    {
+                        await Run(AdbOf(instance),"-s",SerialOf(instance),"shell",$"monkey -p {Package} -c android.intent.category.LAUNCHER 1");
+                        await Task.Delay(3000);
+                    }
+                    SpawnWorker(instance,args);
+                }
+                catch(Exception ex) { AppendControlLog(instance,T("해상도 변경 및 재시작 후 시작 실패: ","解像度変更・再起動後の開始に失敗: ","Start after resolution fix failed: ")+ex.Message); }
+                finally { PendingWork.TryRemove(instance,out _); }
+            });
+            return notice;
+        }
         var pid=SpawnWorker(instance,args);
         return T($"{VmNo(instance)}번 시작 (PID {pid})",$"{VmNo(instance)}番を開始 (PID {pid})",$"Started {VmHash(instance)} (PID {pid})");
     }
@@ -309,6 +346,15 @@ internal static partial class Program
             PendingWork[instance]=T("VM 설정 확인 중","VM設定を確認中","Checking VM settings");
             var prepare=await RunMacro("prepare","--instance",instance.ToString());
             if(prepare.Code!=0) throw new Exception(T("prepare 실패: ","prepare失敗: ","prepare failed: ")+prepare.Output.Trim());
+            if(prepare.Output.Contains("updated",StringComparison.OrdinalIgnoreCase))
+            {
+                var updatedMsg=T(
+                    $"{VmNo(instance)}번 해상도·DPI 설정을 960×540 · DPI 160으로 자동 변경했습니다.",
+                    $"{VmNo(instance)}番の解像度・DPI設定を960×540・DPI 160に自動変更しました。",
+                    $"{VmHash(instance)} resolution/DPI settings were automatically updated to 960×540 · DPI 160.");
+                AppendControlLog(instance,updatedMsg);
+                RecordNotice(instance,updatedMsg);
+            }
             PendingWork[instance]=T("VM 켜는 중","VM起動中","Booting VM");
             await VmLaunch(instance);
             PendingWork[instance]=T("VM 부팅 대기 중","VM起動待ち","Waiting for VM boot");
@@ -322,9 +368,14 @@ internal static partial class Program
             if(!booted) break;
             VmListCache=(DateTime.MinValue,[]);
             if(await LiveResolutionOk(instance)) { ScheduleArrange(); return; }
-            // BlueStacks settings are changed in BlueStacks itself, so a restart would not fix them.
             if(attempt>0 || !FixesSettings(instance)) throw new Exception(T("VM 해상도가 960x540 DPI160으로 맞춰지지 않아요.","VMの解像度が960x540 DPI160になりません。","The VM resolution does not become 960x540 DPI160."));
-            AppendControlLog(instance,T("해상도가 달라서 설정을 고치고 VM을 다시 켜요.","解像度が違うため設定を直してVMを再起動します。","Resolution differs; fixing settings and restarting the VM."));
+            var restartMsg=T(
+                $"{VmNo(instance)}번 해상도·DPI가 맞지 않아 960×540 · DPI 160으로 설정을 고치고 앱플레이어를 다시 켜요.",
+                $"{VmNo(instance)}番の解像度・DPIが合わないため、960×540・DPI 160に設定を直してエミュレーターを再起動します。",
+                $"{VmHash(instance)} resolution/DPI differs; fixing settings to 960×540 · DPI 160 and restarting the VM.");
+            AppendControlLog(instance,restartMsg);
+            RecordNotice(instance,restartMsg);
+            PendingWork[instance]=T("해상도·DPI 변경 후 재시작 중","解像度・DPI変更後に再起動中","Fixing resolution/DPI & restarting");
             await QuitVm(instance);
         }
         throw new TimeoutException(T("부팅 시간 초과. 계정 초기화는 보내지 않았습니다.","起動がタイムアウトしました。アカウント初期化は行っていません。","Boot timed out. The account was not reset."));
@@ -580,27 +631,36 @@ internal static partial class Program
     static int InviteWatcherStarted;
     // VMs turned on outside the macro (LDPlayer's own manager) are measured once after boot; a wrong one is fixed and restarted.
     // A locked VM is left alone, and a BlueStacks VM is only reported: its settings are changed in BlueStacks.
-    static readonly HashSet<int> ResolutionChecked=[],SeenOff=[];
+    static readonly HashSet<int> ResolutionChecked=[],ResolutionWarned=[],SeenOff=[];
     static async Task CheckTurnedOnVm(int instance)
     {
-        if(!await IsVmRunning(instance)) { ResolutionChecked.Remove(instance); SeenOff.Add(instance); return; }
+        if(!await IsVmRunning(instance)) { ResolutionChecked.Remove(instance); ResolutionWarned.Remove(instance); SeenOff.Add(instance); return; }
         if(ResolutionChecked.Contains(instance) || IsLocked(instance) || IsWorkerRunning(instance) || PendingWork.ContainsKey(instance) || ProvisionUses(instance)) return;
         try { if((await Run(AdbOf(instance),"-s",SerialOf(instance),"shell","getprop sys.boot_completed")).Trim()!="1") return; }
         catch { return; }
-        ResolutionChecked.Add(instance);
         // Only VMs that turned on while the control panel runs; restarting the panel leaves windows where they are.
         if(SeenOff.Remove(instance)) ScheduleArrange();
-        if(await LiveResolutionOk(instance)) return;
+        if(await LiveResolutionOk(instance)) { ResolutionChecked.Add(instance); return; }
         if(!FixesSettings(instance))
         {
-            AppendControlLog(instance,T("해상도가 960x540 DPI160이 아니에요. 블루스택 설정(디스플레이)에서 맞춰주세요.","解像度が960x540 DPI160ではありません。BlueStacksの設定(ディスプレイ)で合わせてください。","The resolution is not 960x540 DPI160. Set it in BlueStacks settings (Display)."));
+            if(ResolutionWarned.Add(instance))
+                AppendControlLog(instance,T(
+                    "해상도·DPI가 960×540 · DPI 160이 아니에요. 실행 중인 다른 블루스택 창을 모두 닫으면 자동으로 설정을 바꾸고 재시작합니다.",
+                    "解像度・DPIが960×540・DPI 160ではありません。起動中の他のBlueStacksウィンドウをすべて閉じると自動で設定を変更して再起動します。",
+                    "The resolution/DPI is not 960×540 · DPI 160. Close other running BlueStacks windows so the macro can update settings and restart automatically."));
             return;
         }
-        AppendControlLog(instance,T("해상도가 달라서 설정을 고치고 VM을 다시 켜요.","解像度が違うため設定を直してVMを再起動します。","Resolution differs; fixing settings and restarting the VM."));
-        PendingWork[instance]=T("해상도 맞추는 중","解像度を調整中","Fixing resolution");
+        ResolutionChecked.Add(instance);
+        var notice=T(
+            $"{VmNo(instance)}번 해상도·DPI가 맞지 않아 960×540 · DPI 160으로 설정을 자동 변경하고 앱플레이어를 다시 켜요.",
+            $"{VmNo(instance)}番の解像度・DPIが合わないため、960×540・DPI 160に設定を自動変更してエミュレーターを再起動します。",
+            $"{VmHash(instance)} resolution/DPI differs; fixing settings to 960×540 · DPI 160 and restarting the VM.");
+        AppendControlLog(instance,notice);
+        RecordNotice(instance,notice);
+        PendingWork[instance]=T("해상도·DPI 변경 후 재시작 중","解像度・DPI変更後に再起動中","Fixing resolution/DPI & restarting");
         _=Task.Run(async()=>
         {
-            try { await QuitVm(instance); await BootVm(instance); AppendControlLog(instance,T("해상도를 맞추고 다시 켰어요.","解像度を合わせて再起動しました。","Resolution fixed and VM restarted.")); }
+            try { await QuitVm(instance); await BootVm(instance); AppendControlLog(instance,T("해상도·DPI(960×540 · 160) 설정 적용 및 재시작 완료.","解像度・DPI(960×540・160)設定適用および再起動完了。","Resolution/DPI (960×540 · 160) fixed and VM restarted.")); }
             catch(Exception ex) { AppendControlLog(instance,T("해상도 맞추기 실패: ","解像度の調整に失敗: ","Fixing resolution failed: ")+ex.Message); }
             finally { PendingWork.TryRemove(instance,out _); }
         });

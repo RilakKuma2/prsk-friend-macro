@@ -51,6 +51,7 @@ internal static partial class Program
         }),null,-1,false);
         var view=new WebView2 { Dock=DockStyle.Fill,DefaultBackgroundColor=window.BackColor };
         window.Controls.Add(view);
+        BindUpdateLifetime(window);
         window.Shown+=async (_,_)=>
         {
             try
@@ -61,6 +62,11 @@ internal static partial class Program
                 view.CoreWebView2.Settings.AreDevToolsEnabled=false;
                 view.CoreWebView2.Settings.IsStatusBarEnabled=false;
                 view.CoreWebView2.NewWindowRequested+=(_,e)=>{ e.Handled=true; Process.Start(new ProcessStartInfo(e.Uri) { UseShellExecute=true }); };
+                view.CoreWebView2.WebMessageReceived+=async (_,e)=>
+                {
+                    if(e.Source.StartsWith(url,StringComparison.Ordinal) && e.TryGetWebMessageAsString()=="check-update")
+                        await CheckForUpdate(window,true);
+                };
                 view.CoreWebView2.Navigate(url);
             }
             catch(Exception ex)
@@ -75,6 +81,8 @@ internal static partial class Program
         if(LanServer!=null) LanServer.StopAsync().GetAwaiter().GetResult();
         server.StopAsync().GetAwaiter().GetResult();
     }
+
+    static Task ApplyMacSelfUpdate(string _)=>throw new NotSupportedException();
 
     static Form? MainWindow;
     static CoreWebView2Environment? BrowserEnvironment;

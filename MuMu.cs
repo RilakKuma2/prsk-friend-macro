@@ -73,7 +73,8 @@ internal static partial class Program
         if(!resolution.All(r=>Same(r.Key,r.Value)))
         {
             if(running) throw new Exception("Settings differ on a running instance; stop that instance before prepare.");
-            changes.AddRange(["-k","resolution_mode","-val","custom","-k","resolution_width.custom","-val","960","-k","resolution_height.custom","-val","540","-k","resolution_dpi.custom","-val","160"]);
+            changes.AddRange(["-k","resolution_mode","-val","custom","-k","resolution_width.custom","-val","960","-k","resolution_height.custom","-val","540","-k","resolution_dpi.custom","-val","160",
+                "-k","resolution_width","-val","960","-k","resolution_height","-val","540","-k","resolution_dpi","-val","160"]);
         }
         if(!running) foreach(var (key,value) in light.Where(l=>!Same(l.Key,l.Value))) changes.AddRange(["-k",key,"-val",value]);
         if(changes.Count>0) RequireMuMuOk(await MuMu(TimeSpan.FromSeconds(30),["setting","-v",local.ToString(),..changes]));

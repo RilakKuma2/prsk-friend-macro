@@ -112,6 +112,6 @@ internal static partial class Program
             config["basicSettings.fps"]=LightFps; config["basicSettings.verticalSync"]=false;
             await File.WriteAllTextAsync(path,config.ToJsonString(JsonOptions));
         }
-        return $"960x540 DPI160, 2 CPU, 3072 MB, {LightFps} FPS, ADB enabled. Original config backed up.";
+        return $"960x540 DPI160, 2 CPU, 3072 MB, {LightFps} FPS, ADB enabled{(!matches?" (LDPlayer settings updated)":"")}. Original config backed up.";
     }
 }

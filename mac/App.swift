@@ -105,6 +105,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         process.terminationHandler = { [weak self] ended in
             DispatchQueue.main.async {
                 guard let self, !self.quitting else { return }
+                if ended.terminationStatus == 0 { self.quitting = true; NSApp.terminate(nil); return }
                 self.show("제어판이 꺼졌어요 (코드 \(ended.terminationStatus)).\n앱을 다시 열어 주세요. 기록: \(logURL.path)")
             }
         }

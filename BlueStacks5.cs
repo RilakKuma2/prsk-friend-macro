@@ -116,7 +116,8 @@ internal static partial class Program
         var target=BlueStacksInstanceOf(instance);
         var conf=ReadBlueStacksConf();
         var prefix=$"bst.instance.{target.Id}.";
-        var wanted=new Dictionary<string,string> { [prefix+"fb_width"]="960",[prefix+"fb_height"]="540",[prefix+"dpi"]="160",["bst.enable_adb_access"]="1" };
+        var wanted=new Dictionary<string,string> { [prefix+"fb_width"]="960",[prefix+"fb_height"]="540",[prefix+"dpi"]="160",
+            [prefix+"custom_resolution_selected"]="1",["bst.enable_adb_access"]="1" };
         var light=new Dictionary<string,string> { [prefix+"cpus"]=LightCpus.ToString(),[prefix+"ram"]=LightMemoryMb.ToString(),[prefix+"max_fps"]=LightFps.ToString(),
             [prefix+"enable_high_fps"]="0",[prefix+"enable_vsync"]="0" };
         var wrong=wanted.Where(w=>conf.GetValueOrDefault(w.Key)!=w.Value).ToList();
@@ -125,13 +126,17 @@ internal static partial class Program
         if(wrong.Count==0) return "960x540 DPI160, ADB enabled.";
         if(players==0)
         {
-            var lines=File.ReadAllLines(BlueStacksConf).ToList();
-            foreach(var (key,value) in wrong)
+            lock(BlueStacksConfLock)
             {
-                var at=lines.FindIndex(l=>l.StartsWith(key+"=",StringComparison.Ordinal));
-                if(at>=0) lines[at]=$"{key}=\"{value}\""; else lines.Add($"{key}=\"{value}\"");
+                var lines=File.ReadAllLines(BlueStacksConf).ToList();
+                foreach(var (key,value) in wrong)
+                {
+                    var at=lines.FindIndex(l=>l.StartsWith(key+"=",StringComparison.Ordinal));
+                    if(at>=0) lines[at]=$"{key}=\"{value}\""; else lines.Add($"{key}=\"{value}\"");
+                }
+                File.WriteAllLines(BlueStacksConf,lines);
+                BlueStacksConfCache=(DateTime.MinValue,[]);
             }
-            File.WriteAllLines(BlueStacksConf,lines);
             return "960x540 DPI160, ADB enabled (bluestacks.conf updated).";
         }
         throw new InvalidOperationException(T($"블루스택 {target.Title} 설정을 바꿔야 해요: 해상도 960×540, DPI 160, ADB 켜기. 블루스택을 모두 끄면 매크로가 바꾸고, 켜 둔 채라면 블루스택 설정의 디스플레이·고급 탭에서 바꾼 뒤 다시 시도하세요.",

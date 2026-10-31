@@ -199,7 +199,7 @@ internal static partial class Program
             using var controlLock=needsLock?new FileStream("instance.lock",FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None):null;
             Directory.CreateDirectory("artifacts");
             if(args[0]=="prepare") { await PrepareInstance(); return 0; }
-            if(args[0] is "run" or "tutorial" or "stage" or "resume" or "register-invite") await EnsureResolution();
+            if(args[0] is "run" or "tutorial" or "stage" or "resume" or "register-invite") await EnsureResolution(args[0] is "tutorial" or "stage" or "register-invite");
             if(args[0]=="resume")
             {
                 File.Delete("artifacts/macro.stop");
@@ -353,26 +353,41 @@ internal static partial class Program
         // A reply cut short (the adb server restarting) tells nothing; only a reported size can be wrong.
         return !output.Contains("Physical size") || ResolutionMatches(output);
     }
-    static async Task EnsureResolution()
+    static async Task EnsureResolution(bool relaunchGame=false)
     {
         var row=await VmRow(Instance);
         if(row==null) return;
         if(row[4]!="1") { await PrepareInstance(); return; }
         await ConnectVm(Instance);
         if(await LiveResolutionOk(Instance)) return;
-        if(!FixesSettings(Instance)) throw new Exception("VM is not running at 960x540 DPI160. Change it in BlueStacks settings (Display) and restart the instance.");
-        Console.WriteLine("VM is not running at 960x540 DPI160; restarting it with fixed settings.");
+        if(!FixesSettings(Instance)) throw new Exception(T(
+            "VM 해상도·DPI가 960×540 · DPI 160이 아닙니다. 실행 중인 다른 블루스택 창을 모두 닫으면 자동으로 설정을 변경하고 재시작합니다.",
+            "VMの解像度・DPIが960×540・DPI 160ではありません。起動中の他のBlueStacksウィンドウをすべて閉じると自動で設定を変更して再起動します。",
+            "VM is not running at 960×540 DPI 160. Close other running BlueStacks windows so the macro can update settings and restart automatically."));
+        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] {T("[제어판] 해상도·DPI가 맞지 않아 960×540 · DPI 160으로 설정을 자동 변경하고 앱플레이어를 재시작합니다.","[コントロール] 解像度・DPIが合わないため、960×540・DPI 160に設定を自動変更してエミュレーターを再起動します。","[Control] Resolution/DPI mismatch; updating settings to 960×540 · DPI 160 and restarting the emulator.")}");
         await QuitVm(Instance);
         await PrepareInstance();
         await VmLaunch(Instance);
-        var deadline=DateTime.UtcNow.AddMinutes(3);
+        var deadline=DateTime.UtcNow.AddMinutes(3); var booted=false;
         while(DateTime.UtcNow<deadline)
         {
-            try { await ConnectVm(Instance); if((await Shell("getprop sys.boot_completed")).Trim()=="1") break; } catch { }
+            try { await ConnectVm(Instance); if((await Shell("getprop sys.boot_completed")).Trim()=="1") { booted=true; break; } } catch { }
             await Task.Delay(2000);
         }
-        if(!await LiveResolutionOk(Instance)) throw new Exception("VM resolution is still not 960x540 DPI160 after restarting with fixed settings.");
+        if(!booted) throw new Exception(T("앱플레이어 재시작 대기 시간이 초과되었습니다.","エミュレーターの再起動がタイムアウトしました。","Emulator restart timed out."));
+        if(!await LiveResolutionOk(Instance)) throw new Exception(T("설정을 변경하고 재시작했지만 해상도·DPI가 960×540 · DPI 160으로 적용되지 않았습니다.","設定を変更して再起動しましたが、解像度・DPIが960×540・DPI 160になりませんでした。","VM resolution is still not 960×540 DPI 160 after restarting with fixed settings."));
+        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] {T("[제어판] 해상도·DPI(960×540 · 160) 설정 적용 및 앱플레이어 재시작 완료.","[コントロール] 解像度・DPI(960×540・160)の設定適用およびエミュレーター再起動が完了しました。","[Control] Resolution/DPI (960×540 · 160) applied and emulator restarted.")}");
         LastGuard=DateTime.MinValue;
+        if(relaunchGame)
+        {
+            await Guard();
+            var current=await Shell(ResumedActivity);
+            if(!current.Contains(Package) && !current.Contains("com.google.android.gms"))
+            {
+                await Shell($"monkey -p {Package} -c android.intent.category.LAUNCHER 1");
+                await Task.Delay(3000);
+            }
+        }
     }
 #if WINDOWS
     // macOS reads text with Vision instead (MacApp.cs).

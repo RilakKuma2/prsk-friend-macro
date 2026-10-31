@@ -7,43 +7,88 @@ using System.Windows.Forms;
 // and on the user's yes download the zip, close, copy it over the install and start again. local/ is never touched.
 internal static partial class Program
 {
-    const string ReleaseRepo="RilakKuma2/prsk-friend-macro";
     const string ReleaseAsset="SekaiMacro-win-x64.zip";
-
-    static Version CurrentVersion=>Normalize(typeof(Program).Assembly.GetName().Version??new Version(0,0,0));
-    static Version Normalize(Version v)=>new(v.Major,v.Minor,Math.Max(v.Build,0));
 
     // Only a release install updates itself (the exe sits next to flow.json); a dev build under bin\ is left alone.
     static bool IsReleaseInstall=>string.Equals(Path.GetFullPath(AppContext.BaseDirectory).TrimEnd('\\'),Path.GetFullPath(Workspace).TrimEnd('\\'),StringComparison.OrdinalIgnoreCase);
+    static int UpdateCheckRunning;
+    static volatile bool UpdateDownloading,UpdateApplying;
 
-    static async Task CheckForUpdate(Form window)
+    static void BindUpdateLifetime(Form window)
     {
-        if(!IsReleaseInstall) return;
+        window.FormClosing+=(_,e)=>{ if(UpdateDownloading && !UpdateApplying) e.Cancel=true; };
+    }
+
+    static DialogResult ConfirmUpdate(Form owner,string message,string notes)
+    {
+        using var dialog=new Form { Text=AppTitle,Width=700,Height=640,MinimumSize=new(480,360),StartPosition=FormStartPosition.CenterParent,ShowInTaskbar=false,MinimizeBox=false,MaximizeBox=false,Icon=owner.Icon };
+        var layout=new TableLayoutPanel { Dock=DockStyle.Fill,Padding=new Padding(18),ColumnCount=1,RowCount=3 };
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize)); layout.RowStyles.Add(new RowStyle(SizeType.Percent,100)); layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        var intro=new Label { Text=message,AutoSize=true,MaximumSize=new(640,0),Margin=new Padding(0,0,0,14) };
+        var changes=new TextBox { Text=notes.Replace("\n","\r\n"),ReadOnly=true,Multiline=true,WordWrap=true,ScrollBars=ScrollBars.Vertical,Dock=DockStyle.Fill,BackColor=System.Drawing.SystemColors.Window };
+        var buttons=new FlowLayoutPanel { FlowDirection=FlowDirection.RightToLeft,AutoSize=true,Dock=DockStyle.Fill,Padding=new Padding(0,14,0,0) };
+        var cancel=new Button { Text=T("취소","キャンセル","Cancel"),DialogResult=DialogResult.No,AutoSize=true };
+        var apply=new Button { Text=T("업데이트","更新","Update"),DialogResult=DialogResult.Yes,AutoSize=true };
+        buttons.Controls.Add(cancel); buttons.Controls.Add(apply);
+        layout.Controls.Add(intro,0,0); layout.Controls.Add(changes,0,1); layout.Controls.Add(buttons,0,2);
+        dialog.Controls.Add(layout); dialog.AcceptButton=apply; dialog.CancelButton=cancel;
+        return dialog.ShowDialog(owner);
+    }
+
+    static async Task CheckForUpdate(Form window,bool manual=false)
+    {
+        if(Interlocked.Exchange(ref UpdateCheckRunning,1)!=0) return;
+        var updating=false;
+        void Notice(string message) { if(!window.IsDisposed) window.Invoke(()=>MessageBox.Show(window,message,AppTitle,MessageBoxButtons.OK,MessageBoxIcon.Information)); }
         try
         {
+            if(!IsReleaseInstall)
+            {
+                if(manual) Notice(T("개발용 빌드입니다. 배포용 앱에서 업데이트할 수 있어요.","開発用ビルドです。配布版アプリで更新できます。","This is a development build. Use a release package to update."));
+                return;
+            }
             using var http=new HttpClient { Timeout=TimeSpan.FromSeconds(20) };
             http.DefaultRequestHeaders.UserAgent.ParseAdd("SekaiMacro/"+CurrentVersion);
             http.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
-            using var release=JsonDocument.Parse(await http.GetStringAsync($"https://api.github.com/repos/{ReleaseRepo}/releases/latest"));
-            var root=release.RootElement;
-            var tag=root.GetProperty("tag_name").GetString()??"";
-            if(!Version.TryParse(tag.TrimStart('v','V'),out var latest) || Normalize(latest)<=CurrentVersion) return;
-            var asset=root.GetProperty("assets").EnumerateArray().FirstOrDefault(a=>a.GetProperty("name").GetString()==ReleaseAsset);
-            if(asset.ValueKind!=JsonValueKind.Object) return;
-            var notes=root.TryGetProperty("body",out var body)?body.GetString()?.Trim():null;
-            if(notes is { Length: >600 }) notes=notes[..600]+"…";
-
-            if(OtherMacroProcesses())
+            using var response=await http.GetAsync($"https://api.github.com/repos/{ReleaseRepo}/releases/latest");
+            if(response.StatusCode==System.Net.HttpStatusCode.NotFound)
             {
-                window.Invoke(()=>MessageBox.Show(window,T($"새 버전 {tag}이(가) 나왔어요 (지금 v{CurrentVersion}).\n매크로가 실행 중이라 지금은 업데이트하지 않아요. 모두 멈춘 뒤 다시 열면 업데이트할 수 있어요.",
-                    $"新しいバージョン {tag} があります（現在 v{CurrentVersion}）。\nマクロ実行中のため今は更新しません。すべて止めてから開き直すと更新できます。",
-                    $"Version {tag} is available (this is v{CurrentVersion}).\nA macro is running, so it is not updated now. Stop them all and reopen to update."),AppTitle,MessageBoxButtons.OK,MessageBoxIcon.Information));
+                if(manual) Notice(T("아직 공개된 릴리스가 없어요.","公開済みリリースがありません。","No public release is available yet."));
                 return;
             }
-            var answer=(DialogResult)window.Invoke(()=>MessageBox.Show(window,T($"새 버전 {tag}이(가) 나왔어요 (지금 v{CurrentVersion}).\n지금 업데이트할까요? 받은 뒤 자동으로 다시 열려요.",
+            response.EnsureSuccessStatusCode();
+            using var release=JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            if(window.IsDisposed || window.Disposing) return;
+            var root=release.RootElement;
+            var tag=root.GetProperty("tag_name").GetString()??"";
+            if(!Version.TryParse(tag.TrimStart('v','V'),out var latest)) throw new InvalidDataException("Invalid release version: "+tag);
+            if(Normalize(latest)<=CurrentVersion)
+            {
+                if(manual) Notice(T($"최신 버전입니다 (v{CurrentVersion}).",$"最新バージョンです（v{CurrentVersion}）。",$"You are up to date (v{CurrentVersion})."));
+                return;
+            }
+            var asset=root.GetProperty("assets").EnumerateArray().FirstOrDefault(a=>a.GetProperty("name").GetString()==ReleaseAsset);
+            if(asset.ValueKind!=JsonValueKind.Object)
+            {
+                if(manual) Notice(T("새 버전의 Windows 설치 파일이 아직 없습니다.","新バージョンのWindows用ファイルがまだありません。","The Windows package is not available yet."));
+                return;
+            }
+            var notes=await ReadPendingReleaseNotes(http,root);
+
+            if(AnyMacroBusy() || OtherMacroProcesses())
+            {
+                Notice(T($"새 버전 {tag}이(가) 나왔어요 (지금 v{CurrentVersion}).\n매크로가 실행 중이라 지금은 업데이트하지 않아요. 모두 멈춘 뒤 다시 열면 업데이트할 수 있어요.",
+                    $"新しいバージョン {tag} があります（現在 v{CurrentVersion}）。\nマクロ実行中のため今は更新しません。すべて止めてから開き直すと更新できます。",
+                    $"Version {tag} is available (this is v{CurrentVersion}).\nA macro is running, so it is not updated now. Stop them all and reopen to update."));
+                return;
+            }
+            var answer=(DialogResult)window.Invoke(()=>ConfirmUpdate(window,T($"새 버전 {tag}이(가) 나왔어요 (지금 v{CurrentVersion}).\n지금 업데이트할까요? 받은 뒤 자동으로 다시 열려요.",
                 $"新しいバージョン {tag} があります（現在 v{CurrentVersion}）。\n今すぐ更新しますか？取得後に自動で開き直します。",
-                $"Version {tag} is available (this is v{CurrentVersion}).\nUpdate now? The app reopens by itself afterwards.")+(notes is { Length: >0 }?"\n\n"+notes:""),AppTitle,MessageBoxButtons.YesNo,MessageBoxIcon.Information));
+                $"Version {tag} is available (this is v{CurrentVersion}).\nUpdate now? The app reopens by itself afterwards."),notes));
             if(answer!=DialogResult.Yes) return;
+            updating=true;
+            UpdateDownloading=true;
 
             var staging=Path.Combine(Workspace,"local","update");
             if(Directory.Exists(staging)) Directory.Delete(staging,true);
@@ -55,6 +100,11 @@ internal static partial class Program
             var source=Path.GetDirectoryName(Directory.GetFiles(extracted,"SekaiMacro.exe",SearchOption.AllDirectories).FirstOrDefault()
                 ??throw new InvalidDataException("SekaiMacro.exe is missing from the release."))!;
             if(!File.Exists(Path.Combine(source,"flow.json"))) throw new InvalidDataException("flow.json is missing from the release.");
+            if(AnyMacroBusy() || OtherMacroProcesses())
+            {
+                Notice(T("매크로가 실행 중입니다. 모두 멈춘 뒤 다시 확인해 주세요.","マクロ実行中です。すべて停止してから再度確認してください。","A macro is running. Stop it and check again."));
+                return;
+            }
 
             var script=Path.Combine(staging,"apply.ps1");
             File.WriteAllText(script,ApplyScript);
@@ -62,15 +112,22 @@ internal static partial class Program
             foreach(var arg in new[]{"-NoProfile","-ExecutionPolicy","Bypass","-File",script,"-ProcessId",Environment.ProcessId.ToString(),"-Source",source,"-Target",Workspace,"-Staging",staging})
                 info.ArgumentList.Add(arg);
             Process.Start(info);
+            UpdateApplying=true;
             window.Invoke(window.Close);
         }
         catch(Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or KeyNotFoundException)
         {
-            // Offline or rate-limited: checked again on the next start.
+            if(manual || updating) Notice(T("업데이트를 확인하지 못했어요. 인터넷 연결을 확인해 주세요.\n\n","更新を確認できませんでした。接続を確認してください。\n\n","Could not check for updates. Check your connection.\n\n")+ex.Message);
         }
         catch(Exception ex)
         {
-            window.Invoke(()=>{ window.Text=AppTitle; MessageBox.Show(window,T("업데이트하지 못했어요.\n\n","更新できませんでした。\n\n","The update failed.\n\n")+ex.Message,AppTitle,MessageBoxButtons.OK,MessageBoxIcon.Warning); });
+            if(!window.IsDisposed) Notice(T("업데이트하지 못했어요.\n\n","更新できませんでした。\n\n","The update failed.\n\n")+ex.Message);
+        }
+        finally
+        {
+            UpdateDownloading=false;
+            Interlocked.Exchange(ref UpdateCheckRunning,0);
+            if(!window.IsDisposed) window.BeginInvoke(()=>window.Text=AppTitle);
         }
     }
 
