@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#f2f4f6" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#101012" media="(prefers-color-scheme: dark)">
-<title>셐 매크로</title>
+<title>셐친구초대매크로</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <style>
 :root{
@@ -59,16 +59,25 @@ h1{font-size:22px;font-weight:700;letter-spacing:-.02em}
 .emu-menu .dot{width:6px;height:6px;border-radius:50%;background:var(--green);flex:none}
 .emu-menu .meta{margin-left:auto;font-size:12.5px;font-weight:500;color:var(--text-3);font-variant-numeric:tabular-nums}
 .emu-menu .miss .lb{color:var(--text-3)}
-.summary{display:flex;gap:28px;padding:18px 0 22px;align-items:flex-end}
+.summary{display:flex;flex-wrap:wrap;gap:14px 24px;padding:18px 0 22px;align-items:flex-end}
 .summary div{display:flex;flex-direction:column}
 .summary b{font-size:28px;font-weight:700;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
 .summary span{font-size:13px;color:var(--text-3)}
+.summary .gacha-ctl{align-self:center;align-items:flex-start;gap:4px}
+.summary .gacha-hint{font-size:11.5px;color:var(--text-3);line-height:1.25;padding-left:2px}
 .summary .sel-actions{margin-left:auto;flex-direction:row;gap:6px}
 .addvm{align-self:center;height:34px;padding:0 14px;border-radius:17px;background:var(--accent-weak);color:var(--accent);font-size:14px;font-weight:600;white-space:nowrap}
 .addvm:active{opacity:.8}
 .addvm.plain{background:var(--fill);color:var(--text-2)}
 .addvm.red{background:var(--red-weak);color:var(--red)}
 .addvm:disabled{opacity:.4}
+.addvm.gacha-sw{display:inline-flex;align-items:center;gap:8px;padding:0 8px 0 14px;background:var(--fill);color:var(--text-2);transition:background .15s,color .15s}
+.addvm.gacha-sw span:first-child{font-size:14px;color:inherit}
+.addvm.gacha-sw.on{background:var(--accent-weak);color:var(--accent)}
+.mini-sw{width:34px;height:20px;border-radius:10px;background:var(--fill-strong);position:relative;flex:none;transition:background .2s}
+.mini-sw::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2);transition:transform .2s}
+.mini-sw.on{background:var(--accent)}
+.mini-sw.on::after{transform:translateX(14px)}
 /* BlueStacks (macOS) has no window arrangement and makes, copies and removes VMs in its own manager. */
 body.bluestacks .ld-only,body:not(.bluestacks) .bs-only{display:none!important}
 .sel-actions button{height:34px;padding:0 14px;border-radius:17px;background:var(--fill);font-size:14px;font-weight:600;color:var(--text-2)}
@@ -206,10 +215,28 @@ select.field{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xml
 .kv{display:flex;justify-content:space-between;font-size:14px;padding:6px 0}
 .kv span:first-child{color:var(--text-3)}
 .kv span:last-child{font-weight:600;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px}
-.log{margin-top:16px;background:var(--surface-2);border-radius:14px;padding:14px 16px;height:220px;overflow:auto;
+.dtabs{margin-top:14px;width:fit-content}
+.dtabs button{flex:none;height:32px;padding:0 16px;font-size:13.5px}
+.log{margin-top:10px;background:var(--surface-2);border-radius:14px;padding:14px 16px;height:220px;overflow:auto;
   font-family:ui-monospace,"Cascadia Code",Consolas,monospace;font-size:12px;line-height:1.65;color:var(--text-2);white-space:pre-wrap;word-break:break-all}
 .log .e{color:var(--red)}
 .log .c{color:var(--accent)}
+.timing{margin-top:10px;background:var(--surface-2);border-radius:14px;padding:14px 16px;height:220px;overflow:auto;font-size:13px}
+.tsum{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding-bottom:10px;border-bottom:1px solid var(--fill);flex-wrap:wrap}
+.tsum .tmain{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.tsum b{font-size:18px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--text)}
+.tsum .tmeta{font-size:12px;color:var(--text-3);display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.tsum .trestart{color:var(--red);font-weight:600}
+.tlist{display:flex;flex-direction:column;gap:4px;margin-top:10px}
+.trow{display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:10px}
+.trow .tname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-2);font-weight:500}
+.trow .ttime{font-size:12px;color:var(--text-3);font-variant-numeric:tabular-nums;white-space:nowrap}
+.trow .tdur{font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--text);font-weight:600;min-width:64px;text-align:right}
+.trow.restart{background:var(--red-weak);color:var(--red)}
+.trow.restart .tname,.trow.restart .ttime,.trow.restart .tdur{color:var(--red);font-weight:600}
+.thist{margin-top:12px;padding-top:10px;border-top:1px solid var(--fill)}
+.thist h4{font-size:12px;font-weight:600;color:var(--text-3);margin-bottom:6px}
+.thist .trow{padding:4px 6px;font-size:12.5px}
 .url{display:flex;gap:8px;align-items:center;padding:12px 14px;background:var(--fill);border-radius:12px;margin-top:8px;font-size:13px;word-break:break-all}
 .url span{flex:1}
 .url button{color:var(--accent);font-weight:600;font-size:13px;flex:none}
@@ -327,7 +354,7 @@ select.field{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xml
 <body>
 <div class="wrap">
   <header>
-    <div class="title"><div><small id="ver" style="font-size:12px;color:var(--text-3);font-weight:600;display:block;line-height:1;margin-bottom:2px"></small><h1>셐 매크로</h1></div>
+    <div class="title"><div><small id="ver" style="font-size:12px;color:var(--text-3);font-weight:600;display:block;line-height:1;margin-bottom:2px"></small><h1>셐친구초대매크로</h1></div>
       <div class="emu" id="emu" style="display:none">
         <button class="emu-btn" id="emuBtn" aria-haspopup="listbox" aria-expanded="false" aria-label="에뮬레이터 선택"><span id="emuName"></span><span class="n" id="emuCount"></span>
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4.5l3 3 3-3"/></svg></button>
@@ -352,6 +379,10 @@ select.field{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xml
     <div><b id="sDone">0</b><span>완료</span></div>
     <button class="addvm ld-only" id="vmNew">＋ VM 만들기</button>
     <button class="addvm bs-only" id="vmSetup">＋ VM 세팅</button>
+    <div class="gacha-ctl">
+      <button class="addvm gacha-sw on" id="skipGachaBtn" type="button" aria-pressed="true" title="가챠 안 돌려도 스토리 해금 가능 · 실행 중 변경 시 다음 회차부터 적용"><span>가챠 스킵</span><span class="mini-sw on"></span></button>
+      <span class="gacha-hint">유닛을 맞게 고르면 가챠를 스킵해도 무방합니다</span>
+    </div>
     <button class="addvm plain ld-only" id="cloneSel" style="display:none">복제</button>
     <button class="addvm red ld-only" id="removeSel" style="display:none">VM 삭제</button>
     <span class="chip run" id="provPill" style="display:none"><i></i><em style="font-style:normal"></em></span>
@@ -384,7 +415,6 @@ select.field{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xml
       <select class="field" id="pointDetail" style="margin-top:8px"><option value="">세부 지점 직접 선택</option></select>
     </div>
     <div id="paneStages">
-      <div class="switch" id="skipGachaSw" style="padding-top:4px"><div>가챠 스킵<small>가챠 안 돌려도 스토리 해금 가능</small></div><div class="sw on"></div></div>
       <div class="label">단계 <span id="stageHint" style="font-weight:400"></span></div>
       <div class="chips" id="stageChips"></div>
       <div class="loop" id="paneLoop"><div>반복<small id="loopHint"></small></div>
@@ -425,7 +455,9 @@ select.field{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xml
           <span class="spacer"></span>
           <button class="btn tonal" id="download">저장</button>
         </div>
+        <div class="seg dtabs" id="dTabs"><button class="on" data-dtab="log">로그</button><button data-dtab="timing">가동시간</button></div>
         <div class="log" id="log"></div>
+        <div class="timing" id="timingPane" style="display:none"></div>
         <div class="hist"><h3>초대 기록</h3><div id="hist"></div></div>
       </div>
       <aside class="side">
@@ -563,7 +595,7 @@ select.field{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xml
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 /* Languages: Korean text is the key; static markup is translated in place and code uses t(). */
 const LANGS={ko:'한국어',ja:'日本語',en:'English'},LOCALE={ko:'ko-KR',ja:'ja-JP',en:'en-US'};
-const DICT={"ja":{"셐 매크로":"セカマクロ","모든 VM 화면 새로 캡쳐":"全VMの画面をキャプチャ","캡쳐":"キャプチャ","전체":"一括","창 정렬":"ウィンドウ整列","검증":"検証","원격 접속":"リモート接続","실행 중":"実行中","VM 켜짐":"VM起動中","완료":"完了","전체 선택":"すべて選択","선택 해제":"選択解除","이어하기":"再開","단계 실행":"段階実行","처음부터":"最初から","중지":"停止","실행":"実行","시작 지점":"開始地点","세부 지점 직접 선택":"詳細地点を選択","단계":"段階","반복":"繰り返し","줄이기":"減らす","늘리기":"増やす","게임 데이터를 지우고 새 계정으로 시작해요. 지금 계정이 필요하면 먼저 인계 코드를 발급하거나 계정 연동을 해두세요.":"ゲームデータを消して新しいアカウントで始めます。今のアカウントが必要なら、先に引き継ぎコードを発行するかアカウント連携をしておいてください。","유닛":"ユニット","초대 코드":"招待コード","그대로":"そのまま","바꾸기":"変更","대기열 추가":"待機列に追加","지우기":"消去","영문/숫자 15자 · 선택한 인스턴스 모두에 저장":"英数字15文字 · 選択したすべてのインスタンスに保存","영문/숫자 15자":"英数字15文字","일회용":"使い捨て","영구":"永久","횟수":"回数","꺼진 VM은 켜고 시작":"オフのVMは起動して開始","부팅이 끝나면 자동으로 이어갑니다":"起動が終わると自動で続けます","시작":"開始","실시간":"リアルタイム","직접 조작":"手動操作","뒤로":"戻る","홈":"ホーム","저장":"保存","초대 기록":"招待履歴","잠금":"ロック","시작, VM 조작, 자동 초대 입력을 막아요":"開始・VM操作・自動招待入力を止めます","상태":"状態","지금 쓰기":"今使う","매크로":"マクロ","강제 종료":"強制終了","켜기":"起動","게임 실행":"ゲーム起動","재부팅":"再起動","끄기":"シャットダウン","같은 네트워크의 휴대폰이나 다른 PC에서 엽니다":"同じネットワークのスマホや他のPCから開きます","원격 접속 허용":"リモート接続を許可","포트 8787 · 같은 네트워크에서 누구나 열 수 있어요":"ポート8787 · 同じネットワークなら誰でも開けます","취소":"キャンセル","확인":"OK","언어":"言語","선택":"選択","화면 없음":"画面なし","꺼짐":"オフ","초대 대기":"招待待ち","멈춤":"停止中","대기":"待機","방금":"たった今","{0}초 전":"{0}秒前","{0}분 전":"{0}分前","{0}시간 전":"{0}時間前","{0}일 전":"{0}日前","등록됨":"登録済み","거절됨":"拒否","확인 중":"確認中","{0}/{1}회차":"{0}/{1}周目","닉네임 미확인":"ニックネーム不明","초대 코드 있음":"招待コードあり","초대 코드 없음":"招待コードなし","{0}번":"{0}番","잠긴 인스턴스는 선택할 수 없어요":"ロック中のインスタンスは選択できません","잠금 해제":"ロック解除","잠그기":"ロックする","기록 없음":"記録なし","{0}개 선택":"{0}件選択","· 순서대로 진행":"· 順番に進行","· 초기화 없이 진행":"· 初期化せずに進行","{0}대 초기화 후 시작":"{0}台を初期化して開始","{0}대 시작":"{0}台を開始","{0}은 영구 초대 코드가 없어요":"{0}は永久招待コードがありません","회차마다 새 계정으로 초대 코드를 등록해요":"周回ごとに新しいアカウントで招待コードを登録します","{0}회":"{0}回","· 지금":"· 現在","없음":"なし","단계를 하나 이상 고르세요":"段階を1つ以上選んでください","초대 코드는 영문/숫자 15자예요":"招待コードは英数字15文字です","계정을 초기화할까요?":"アカウントを初期化しますか？","{0}은 새 계정으로 로그인돼요. 지금 계정이 필요하면 인계 코드를 발급하거나 연동을 먼저 해두세요.":"{0}は新しいアカウントでログインします。今のアカウントが必要なら、先に引き継ぎコードを発行するか連携をしておいてください。"," 끝나면 다시 초기화해서 총 {0}회 반복해요.":"終わったら再び初期化して合計{0}回繰り返します。","초기화 후 시작":"初期化して開始","{0}대 시작했어요":"{0}台を開始しました","매크로를 멈출까요?":"マクロを停止しますか？","{0} · 현재 단계가 끝나면 멈추고 게임은 그대로 둡니다.":"{0} · 現在の段階が終わったら止まり、ゲームはそのままです。","{0}대 중지 요청했어요":"{0}台に停止をリクエストしました","지점":"地点","진행":"進行","회차":"周回","업데이트":"更新","마지막 화면":"最後の画面","실시간 끄기":"リアルタイム停止","먼저 캡쳐하세요":"先にキャプチャしてください","로그 없음":"ログなし","영구 {0}회":"永久 {0}回","한 번 등록되면 다음 코드로 넘어가요":"1回登録されたら次のコードに進みます","{0}번 등록되면 다음 코드로 넘어가요":"{0}回登録されたら次のコードに進みます"," · 지금 쓰면 바로 입력해요":" · 今使うとすぐ入力します","지금":"現在","전체 {0}/{1}":"全体 {0}/{1}","저장된 코드 없음":"保存されたコードなし","대기열에서 빼기":"待機列から外す","{0}회차":"{0}周目","직접 입력":"直接入力","보상 화면 보기":"報酬画面を見る","아직 없음":"まだありません","강제 종료할까요?":"強制終了しますか？","진행 중인 동작이 즉시 끊깁니다. 보통은 중지를 쓰세요.":"進行中の動作がすぐ中断されます。普段は停止を使ってください。","VM을 끌까요?":"VMをシャットダウンしますか？","실행 중인 매크로가 있으면 함께 중지합니다.":"実行中のマクロがあれば一緒に停止します。","VM을 재부팅할까요?":"VMを再起動しますか？","켜진 VM이 없어요":"起動中のVMがありません","캡쳐하는 중…":"キャプチャ中…","{0}대 캡쳐 완료":"{0}台のキャプチャ完了","복사":"コピー","복사했어요":"コピーしました","원격 접속을 켰어요":"リモート接続をオンにしました","원격 접속을 껐어요":"リモート接続をオフにしました","단계 시작":"段階の開始","세부 지점":"詳細地点","반복 회차":"周回数","LD플레이어를 찾지 못했어요. ldconsole.exe가 있는 폴더를 알려주세요.":"LDPlayerが見つかりません。ldconsole.exeがあるフォルダを入力してください。","예: D:\\LDPlayer\\LDPlayer9":"例: D:\\LDPlayer\\LDPlayer9","VM 관리":"VM管理","LD플레이어 VM을 만들고 복제하고 세팅해요":"LDPlayerのVMを作成・複製・準備します","LD플레이어":"LDPlayer","폴더":"フォルダ","버전":"バージョン","새 VM 세팅":"新しいVMの準備","게임 설치":"ゲームのインストール","apkpure에서 받기":"apkpureから取得","다른 VM에서 복사":"他のVMからコピー","설치 안 함":"インストールしない","튜토리얼·데이터 다운로드까지 세팅":"チュートリアルとデータダウンロードまで準備","초기 튜토리얼을 끝내고 게임 데이터를 받아둬요":"最初のチュートリアルを終えてゲームデータを取得します","처음부터 실행으로 모든 단계를 진행해요":"最初から実行ですべての段階を進めます","영문/숫자 15자 · 비워두면 초대 없이 진행":"英数字15文字 · 空欄なら招待なしで進行","복제":"複製","VM 삭제":"VM削除","VM 세팅 중":"VM準備中","찾지 못함":"見つかりません","지금 버전 받기 ({0})":"現在のバージョンを取得 ({0})","검증된 버전 받기 ({0})":"検証済みバージョンを取得 ({0})","LD플레이어 9 최신 버전":"LDPlayer 9 最新版","공식 사이트":"公式サイト","진행 중":"進行中","실패":"失敗","취소됨":"キャンセル","멈추기":"止める","{0} 복제":"{0}を複製","복제할 개수":"複製する数","만들 VM 수":"作るVMの数","{0}대":"{0}台","1대를 세팅한 뒤 {0}대를 복제해요":"1台を準備してから{0}台を複製します","1대만 만들어요":"1台だけ作ります","복제한 VM에서 바로 매크로 시작":"複製したVMですぐマクロを開始","세팅 후 바로 매크로 시작":"準備後すぐマクロを開始","{0}대 복제":"{0}台を複製","세팅 시작":"準備開始","VM {0}대를 세팅할까요?":"VMを{0}台準備しますか？","게임 설치와 튜토리얼에 시간이 걸려요. 진행 상황은 이 창과 카드에서 볼 수 있어요.":"ゲームのインストールとチュートリアルには時間がかかります。進行状況はこの画面とカードで確認できます。","{0} VM을 지울까요?":"{0}のVMを削除しますか？","LD플레이어에서 VM이 완전히 삭제돼요. 매크로 기록은 local/removed에 남아요.":"LDPlayerからVMが完全に削除されます。マクロの記録はlocal/removedに残ります。","삭제":"削除","반복하려면 영구 초대 코드를 넣으세요":"繰り返すには永久招待コードを入れてください","디스크":"ディスク","{0} 남음 · 필요 약 {1}":"{0} 空き · 必要 約{1}","게임 받기 (apkpure)":"ゲームを取得 (apkpure)","자동":"自動","게임이 있는 VM → 보관된 파일 → apkpure 순서로 설치해요":"ゲームが入ったVM → 保存済みファイル → apkpureの順にインストールします","셐 매크로 창의 브라우저로 apkpure에서 받아 설치해요":"セカマクロのウィンドウのブラウザでapkpureから取得してインストールします","게임 없이 VM만 만들어요":"ゲームなしでVMだけ作ります","게임 페이지 (apkpure)":"ゲームページ (apkpure)","게임 파일 받기":"ゲームファイルを取得","apkpure 최신 버전을 셐 매크로 창에서 받아 설치하고 QooApp도 깔아요":"apkpureの最新版をアプリのウィンドウで取得してインストールし、QooAppも入れます","게임 업데이트":"ゲーム更新","게임을 업데이트할까요?":"ゲームを更新しますか？","apkpure 최신 버전으로 올려요. 매크로가 돌고 있는 VM은 건너뛰고, 계정과 데이터는 그대로예요.":"apkpureの最新版に更新します。マクロ実行中のVMはスキップし、アカウントとデータはそのままです。","＋ VM 만들기":"＋ VMを作成","복제는 인스턴스를 하나만 골라주세요":"複製はインスタンスを1つだけ選んでください","· {0} 이벤트 유닛":"· {0} のイベントユニット","이벤트 유닛과 달라요":"イベントのユニットと違います","지금 이벤트({0})의 유닛은 {1}이에요. 고른 유닛은 {2}예요. 그대로 진행할까요?":"現在のイベント（{0}）のユニットは{1}です。選んだユニットは{2}です。このまま進めますか？","그대로 진행":"このまま進める","인스턴스마다 지금 코드를 그대로 써요":"インスタンスごとに今のコードをそのまま使います","· 대기열 {0}개":"· 待機列 {0}件","등록된 초대 코드가 없어요":"登録された招待コードがありません","일회용 코드 사용 횟수가 {0}회예요":"使い捨てコードの使用回数は{0}回です","{0}은 등록된 초대 코드가 없어요":"{0}は登録された招待コードがありません","{0}은 일회용 코드 사용 횟수가 {1}회예요":"{0}は使い捨てコードの使用回数が{1}回です","초대 코드를 넣으면 반복할 수 있어요":"招待コードを入れると繰り返せます","지울 때까지 계속 이 코드로 초대해요":"消すまでこのコードで招待し続けます"},"en":{"셐 매크로":"Sekai Macro","모든 VM 화면 새로 캡쳐":"Capture every VM screen","캡쳐":"Capture","전체":"all","창 정렬":"Arrange","검증":"Validate","원격 접속":"Remote access","실행 중":"Running","VM 켜짐":"VMs on","완료":"Done","전체 선택":"Select all","선택 해제":"Deselect","이어하기":"Resume","단계 실행":"Run stages","처음부터":"From scratch","중지":"Stop","실행":"Run","시작 지점":"Start point","세부 지점 직접 선택":"Pick a specific step","단계":"Stages","반복":"Loops","줄이기":"Decrease","늘리기":"Increase","게임 데이터를 지우고 새 계정으로 시작해요. 지금 계정이 필요하면 먼저 인계 코드를 발급하거나 계정 연동을 해두세요.":"This erases the game data and starts a new account. If you need the current account, issue a transfer code or link the account first.","유닛":"Unit","초대 코드":"Invitation code","그대로":"Keep","바꾸기":"Replace","대기열 추가":"Add to queue","지우기":"Clear","영문/숫자 15자 · 선택한 인스턴스 모두에 저장":"15 letters or digits · saved to every selected instance","영문/숫자 15자":"15 letters or digits","일회용":"Single-use","영구":"Permanent","횟수":"Uses","꺼진 VM은 켜고 시작":"Boot VMs that are off","부팅이 끝나면 자동으로 이어갑니다":"Continues automatically after boot","시작":"Start","실시간":"Live","직접 조작":"Manual control","뒤로":"Back","홈":"Home","저장":"Save","초대 기록":"Invitation history","잠금":"Locked","시작, VM 조작, 자동 초대 입력을 막아요":"Blocks starting, VM actions and automatic invitation entry","상태":"Status","지금 쓰기":"Use now","매크로":"Macro","강제 종료":"Force stop","켜기":"Turn on","게임 실행":"Launch game","재부팅":"Reboot","끄기":"Turn off","같은 네트워크의 휴대폰이나 다른 PC에서 엽니다":"Open it from a phone or another PC on the same network","원격 접속 허용":"Allow remote access","포트 8787 · 같은 네트워크에서 누구나 열 수 있어요":"Port 8787 · anyone on the same network can open it","취소":"Cancel","확인":"OK","언어":"Language","선택":"Select","화면 없음":"No screen","꺼짐":"Off","초대 대기":"Awaiting invite","멈춤":"Halted","대기":"Idle","방금":"just now","{0}초 전":"{0}s ago","{0}분 전":"{0}m ago","{0}시간 전":"{0}h ago","{0}일 전":"{0}d ago","등록됨":"Registered","거절됨":"Rejected","확인 중":"Checking","{0}/{1}회차":"Loop {0}/{1}","닉네임 미확인":"Unknown nickname","초대 코드 있음":"Has invitation code","초대 코드 없음":"No invitation code","{0}번":"#{0}","잠긴 인스턴스는 선택할 수 없어요":"Locked instances cannot be selected","잠금 해제":"Unlock","잠그기":"Lock","기록 없음":"No record","{0}개 선택":"{0} selected","· 순서대로 진행":"· runs in order","· 초기화 없이 진행":"· runs without a reset","{0}대 초기화 후 시작":"Reset and start {0}","{0}대 시작":"Start {0}","{0}은 영구 초대 코드가 없어요":"{0}: no permanent invitation code","회차마다 새 계정으로 초대 코드를 등록해요":"Each loop registers the invitation code on a new account","{0}회":"{0}×","· 지금":"· now","없음":"none","단계를 하나 이상 고르세요":"Pick at least one stage","초대 코드는 영문/숫자 15자예요":"Invitation codes are 15 letters or digits","계정을 초기화할까요?":"Reset the accounts?","{0}은 새 계정으로 로그인돼요. 지금 계정이 필요하면 인계 코드를 발급하거나 연동을 먼저 해두세요.":"{0} will sign in with a new account. If you need the current account, issue a transfer code or link it first."," 끝나면 다시 초기화해서 총 {0}회 반복해요.":" When done it resets again, {0} loops in total.","초기화 후 시작":"Reset and start","{0}대 시작했어요":"Started {0}","매크로를 멈출까요?":"Stop the macros?","{0} · 현재 단계가 끝나면 멈추고 게임은 그대로 둡니다.":"{0} · stops after the current stage and leaves the game as is.","{0}대 중지 요청했어요":"Requested a stop for {0}","지점":"Step","진행":"Progress","회차":"Loop","업데이트":"Update","마지막 화면":"Last screen","실시간 끄기":"Stop live","먼저 캡쳐하세요":"Capture first","로그 없음":"No log","영구 {0}회":"Permanent ×{0}","한 번 등록되면 다음 코드로 넘어가요":"Moves to the next code after one registration","{0}번 등록되면 다음 코드로 넘어가요":"Moves to the next code after {0} registrations"," · 지금 쓰면 바로 입력해요":" · using it now enters it right away","지금":"Now","전체 {0}/{1}":"total {0}/{1}","저장된 코드 없음":"No saved code","대기열에서 빼기":"Remove from queue","{0}회차":"loop {0}","직접 입력":"Manual","보상 화면 보기":"View reward screen","아직 없음":"Nothing yet","강제 종료할까요?":"Force stop?","진행 중인 동작이 즉시 끊깁니다. 보통은 중지를 쓰세요.":"The current action is cut off immediately. Use Stop normally.","VM을 끌까요?":"Turn off the VM?","실행 중인 매크로가 있으면 함께 중지합니다.":"Any running macro stops too.","VM을 재부팅할까요?":"Reboot the VM?","켜진 VM이 없어요":"No VMs are on","캡쳐하는 중…":"Capturing…","{0}대 캡쳐 완료":"Captured {0}","복사":"Copy","복사했어요":"Copied","원격 접속을 켰어요":"Remote access is on","원격 접속을 껐어요":"Remote access is off","단계 시작":"Stage start","세부 지점":"Specific step","반복 회차":"Loops","LD플레이어를 찾지 못했어요. ldconsole.exe가 있는 폴더를 알려주세요.":"LDPlayer was not found. Enter the folder that has ldconsole.exe.","예: D:\\LDPlayer\\LDPlayer9":"e.g. D:\\LDPlayer\\LDPlayer9","VM 관리":"VMs","LD플레이어 VM을 만들고 복제하고 세팅해요":"Create, copy and set up LDPlayer VMs","LD플레이어":"LDPlayer","폴더":"Folder","버전":"Version","새 VM 세팅":"New VM setup","게임 설치":"Game install","apkpure에서 받기":"From apkpure","다른 VM에서 복사":"Copy from a VM","설치 안 함":"Skip","튜토리얼·데이터 다운로드까지 세팅":"Run the tutorial and data download","초기 튜토리얼을 끝내고 게임 데이터를 받아둬요":"Finishes the first tutorial and downloads the game data","처음부터 실행으로 모든 단계를 진행해요":"Runs every stage from scratch","영문/숫자 15자 · 비워두면 초대 없이 진행":"15 letters or digits · leave empty to skip invitations","복제":"Copy","VM 삭제":"Remove VM","VM 세팅 중":"Setting up VMs","찾지 못함":"Not found","지금 버전 받기 ({0})":"Get this version ({0})","검증된 버전 받기 ({0})":"Get the tested version ({0})","LD플레이어 9 최신 버전":"Latest LDPlayer 9","공식 사이트":"Official site","진행 중":"Running","실패":"Failed","취소됨":"Cancelled","멈추기":"Stop","{0} 복제":"Copy {0}","복제할 개수":"Copies","만들 VM 수":"VMs to make","{0}대":"{0}","1대를 세팅한 뒤 {0}대를 복제해요":"Sets up one VM, then makes {0} copies","1대만 만들어요":"Makes one VM","복제한 VM에서 바로 매크로 시작":"Start macros on the copies","세팅 후 바로 매크로 시작":"Start macros after setup","{0}대 복제":"Make {0} copies","세팅 시작":"Start setup","VM {0}대를 세팅할까요?":"Set up {0} VMs?","게임 설치와 튜토리얼에 시간이 걸려요. 진행 상황은 이 창과 카드에서 볼 수 있어요.":"Installing the game and the tutorial take a while. Follow progress here and on the cards.","{0} VM을 지울까요?":"Remove the {0} VM?","LD플레이어에서 VM이 완전히 삭제돼요. 매크로 기록은 local/removed에 남아요.":"The VM is deleted from LDPlayer. Macro records stay in local/removed.","삭제":"Remove","반복하려면 영구 초대 코드를 넣으세요":"Loops need a permanent invitation code","디스크":"Disk","{0} 남음 · 필요 약 {1}":"{0} free · needs about {1}","게임 받기 (apkpure)":"Get the game (apkpure)","자동":"Auto","게임이 있는 VM → 보관된 파일 → apkpure 순서로 설치해요":"Installs from a VM with the game, then kept files, then apkpure","셐 매크로 창의 브라우저로 apkpure에서 받아 설치해요":"Downloads from apkpure in the app window's browser and installs","게임 없이 VM만 만들어요":"Creates the VM without the game","게임 페이지 (apkpure)":"Game page (apkpure)","게임 파일 받기":"Download the game file","apkpure 최신 버전을 셐 매크로 창에서 받아 설치하고 QooApp도 깔아요":"Gets the latest version from apkpure in the app window, installs it and adds QooApp","게임 업데이트":"Update the game","게임을 업데이트할까요?":"Update the game?","apkpure 최신 버전으로 올려요. 매크로가 돌고 있는 VM은 건너뛰고, 계정과 데이터는 그대로예요.":"Updates to the latest apkpure version. VMs running a macro are skipped; accounts and data stay.","＋ VM 만들기":"＋ New VM","복제는 인스턴스를 하나만 골라주세요":"Select one instance to copy","· {0} 이벤트 유닛":"· unit of {0}","이벤트 유닛과 달라요":"Not the event unit","지금 이벤트({0})의 유닛은 {1}이에요. 고른 유닛은 {2}예요. 그대로 진행할까요?":"The current event ({0}) is for {1}, but {2} is selected. Continue anyway?","그대로 진행":"Continue anyway","인스턴스마다 지금 코드를 그대로 써요":"Each instance keeps its current code","· 대기열 {0}개":"· {0} queued","등록된 초대 코드가 없어요":"No invitation code saved","일회용 코드 사용 횟수가 {0}회예요":"The single-use code has {0} uses","{0}은 등록된 초대 코드가 없어요":"{0}: no invitation code saved","{0}은 일회용 코드 사용 횟수가 {1}회예요":"{0}: the single-use code has {1} uses","초대 코드를 넣으면 반복할 수 있어요":"Enter an invitation code to loop","지울 때까지 계속 이 코드로 초대해요":"Keeps inviting with this code until deleted"}};
+const DICT={"ja":{"셐친구초대매크로":"セカフレンド招待マクロ","모든 VM 화면 새로 캡쳐":"全VMの画面をキャプチャ","캡쳐":"キャプチャ","전체":"一括","창 정렬":"ウィンドウ整列","검증":"検証","원격 접속":"リモート接続","실행 중":"実行中","VM 켜짐":"VM起動中","완료":"完了","전체 선택":"すべて選択","선택 해제":"選択解除","이어하기":"再開","단계 실행":"段階実行","처음부터":"最初から","중지":"停止","실행":"実行","시작 지점":"開始地点","세부 지점 직접 선택":"詳細地点を選択","단계":"段階","반복":"繰り返し","줄이기":"減らす","늘리기":"増やす","게임 데이터를 지우고 새 계정으로 시작해요. 지금 계정이 필요하면 먼저 인계 코드를 발급하거나 계정 연동을 해두세요.":"ゲームデータを消して新しいアカウントで始めます。今のアカウントが必要なら、先に引き継ぎコードを発行するかアカウント連携をしておいてください。","유닛":"ユニット","초대 코드":"招待コード","그대로":"そのまま","바꾸기":"変更","대기열 추가":"待機列に追加","지우기":"消去","영문/숫자 15자 · 선택한 인스턴스 모두에 저장":"英数字15文字 · 選択したすべてのインスタンスに保存","영문/숫자 15자":"英数字15文字","일회용":"使い捨て","영구":"永久","횟수":"回数","꺼진 VM은 켜고 시작":"オフのVMは起動して開始","부팅이 끝나면 자동으로 이어갑니다":"起動が終わると自動で続けます","시작":"開始","실시간":"リアルタイム","직접 조작":"手動操作","뒤로":"戻る","홈":"ホーム","저장":"保存","초대 기록":"招待履歴","잠금":"ロック","시작, VM 조작, 자동 초대 입력을 막아요":"開始・VM操作・自動招待入力を止めます","상태":"状態","지금 쓰기":"今使う","매크로":"マクロ","강제 종료":"強制終了","켜기":"起動","게임 실행":"ゲーム起動","재부팅":"再起動","끄기":"シャットダウン","같은 네트워크의 휴대폰이나 다른 PC에서 엽니다":"同じネットワークのスマホや他のPCから開きます","원격 접속 허용":"リモート接続を許可","포트 8787 · 같은 네트워크에서 누구나 열 수 있어요":"ポート8787 · 同じネットワークなら誰でも開けます","취소":"キャンセル","확인":"OK","언어":"言語","선택":"選択","화면 없음":"画面なし","꺼짐":"オフ","초대 대기":"招待待ち","멈춤":"停止中","대기":"待機","방금":"たった今","{0}초 전":"{0}秒前","{0}분 전":"{0}分前","{0}시간 전":"{0}時間前","{0}일 전":"{0}日前","등록됨":"登録済み","거절됨":"拒否","확인 중":"確認中","{0}/{1}회차":"{0}/{1}周目","닉네임 미확인":"ニックネーム不明","초대 코드 있음":"招待コードあり","초대 코드 없음":"招待コードなし","{0}번":"{0}番","잠긴 인스턴스는 선택할 수 없어요":"ロック中のインスタンスは選択できません","잠금 해제":"ロック解除","잠그기":"ロックする","기록 없음":"記録なし","{0}개 선택":"{0}件選択","· 순서대로 진행":"· 順番に進行","· 초기화 없이 진행":"· 初期化せずに進行","{0}대 초기화 후 시작":"{0}台を初期化して開始","{0}대 시작":"{0}台を開始","{0}은 영구 초대 코드가 없어요":"{0}は永久招待コードがありません","회차마다 새 계정으로 초대 코드를 등록해요":"周回ごとに新しいアカウントで招待コードを登録します","{0}회":"{0}回","· 지금":"· 現在","없음":"なし","단계를 하나 이상 고르세요":"段階を1つ以上選んでください","초대 코드는 영문/숫자 15자예요":"招待コードは英数字15文字です","계정을 초기화할까요?":"アカウントを初期化しますか？","{0}은 새 계정으로 로그인돼요. 지금 계정이 필요하면 인계 코드를 발급하거나 연동을 먼저 해두세요.":"{0}は新しいアカウントでログインします。今のアカウントが必要なら、先に引き継ぎコードを発行するか連携をしておいてください。"," 끝나면 다시 초기화해서 총 {0}회 반복해요.":"終わったら再び初期化して合計{0}回繰り返します。","초기화 후 시작":"初期化して開始","{0}대 시작했어요":"{0}台を開始しました","매크로를 멈출까요?":"マクロを停止しますか？","{0} · 현재 단계가 끝나면 멈추고 게임은 그대로 둡니다.":"{0} · 現在の段階が終わったら止まり、ゲームはそのままです。","{0}대 중지 요청했어요":"{0}台に停止をリクエストしました","지점":"地点","진행":"進行","회차":"周回","업데이트":"更新","마지막 화면":"最後の画面","실시간 끄기":"リアルタイム停止","먼저 캡쳐하세요":"先にキャプチャしてください","로그 없음":"ログなし","영구 {0}회":"永久 {0}回","한 번 등록되면 다음 코드로 넘어가요":"1回登録されたら次のコードに進みます","{0}번 등록되면 다음 코드로 넘어가요":"{0}回登録されたら次のコードに進みます"," · 지금 쓰면 바로 입력해요":" · 今使うとすぐ入力します","지금":"現在","전체 {0}/{1}":"全体 {0}/{1}","저장된 코드 없음":"保存されたコードなし","대기열에서 빼기":"待機列から外す","{0}회차":"{0}周目","직접 입력":"直接入力","보상 화면 보기":"報酬画面を見る","아직 없음":"まだありません","강제 종료할까요?":"強制終了しますか？","진행 중인 동작이 즉시 끊깁니다. 보통은 중지를 쓰세요.":"進行中の動作がすぐ中断されます。普段は停止を使ってください。","VM을 끌까요?":"VMをシャットダウンしますか？","실행 중인 매크로가 있으면 함께 중지합니다.":"実行中のマクロがあれば一緒に停止します。","VM을 재부팅할까요?":"VMを再起動しますか？","켜진 VM이 없어요":"起動中のVMがありません","캡쳐하는 중…":"キャプチャ中…","{0}대 캡쳐 완료":"{0}台のキャプチャ完了","복사":"コピー","복사했어요":"コピーしました","원격 접속을 켰어요":"リモート接続をオンにしました","원격 접속을 껐어요":"リモート接続をオフにしました","단계 시작":"段階の開始","세부 지점":"詳細地点","반복 회차":"周回数","LD플레이어를 찾지 못했어요. ldconsole.exe가 있는 폴더를 알려주세요.":"LDPlayerが見つかりません。ldconsole.exeがあるフォルダを入力してください。","예: D:\\LDPlayer\\LDPlayer9":"例: D:\\LDPlayer\\LDPlayer9","VM 관리":"VM管理","LD플레이어 VM을 만들고 복제하고 세팅해요":"LDPlayerのVMを作成・複製・準備します","LD플레이어":"LDPlayer","폴더":"フォルダ","버전":"バージョン","새 VM 세팅":"新しいVMの準備","게임 설치":"ゲームのインストール","apkpure에서 받기":"apkpureから取得","다른 VM에서 복사":"他のVMからコピー","설치 안 함":"インストールしない","튜토리얼·데이터 다운로드까지 세팅":"チュートリアルとデータダウンロードまで準備","초기 튜토리얼을 끝내고 게임 데이터를 받아둬요":"最初のチュートリアルを終えてゲームデータを取得します","처음부터 실행으로 모든 단계를 진행해요":"最初から実行ですべての段階を進めます","영문/숫자 15자 · 비워두면 초대 없이 진행":"英数字15文字 · 空欄なら招待なしで進行","복제":"複製","VM 삭제":"VM削除","VM 세팅 중":"VM準備中","찾지 못함":"見つかりません","지금 버전 받기 ({0})":"現在のバージョンを取得 ({0})","검증된 버전 받기 ({0})":"検証済みバージョンを取得 ({0})","LD플레이어 9 최신 버전":"LDPlayer 9 最新版","공식 사이트":"公式サイト","진행 중":"進行中","실패":"失敗","취소됨":"キャンセル","멈추기":"止める","{0} 복제":"{0}を複製","복제할 개수":"複製する数","만들 VM 수":"作るVMの数","{0}대":"{0}台","1대를 세팅한 뒤 {0}대를 복제해요":"1台を準備してから{0}台を複製します","1대만 만들어요":"1台だけ作ります","복제한 VM에서 바로 매크로 시작":"複製したVMですぐマクロを開始","세팅 후 바로 매크로 시작":"準備後すぐマクロを開始","{0}대 복제":"{0}台を複製","세팅 시작":"準備開始","VM {0}대를 세팅할까요?":"VMを{0}台準備しますか？","게임 설치와 튜토리얼에 시간이 걸려요. 진행 상황은 이 창과 카드에서 볼 수 있어요.":"ゲームのインストールとチュートリアルには時間がかかります。進行状況はこの画面とカードで確認できます。","{0} VM을 지울까요?":"{0}のVMを削除しますか？","LD플레이어에서 VM이 완전히 삭제돼요. 매크로 기록은 local/removed에 남아요.":"LDPlayerからVMが完全に削除されます。マクロの記録はlocal/removedに残ります。","삭제":"削除","반복하려면 영구 초대 코드를 넣으세요":"繰り返すには永久招待コードを入れてください","디스크":"ディスク","{0} 남음 · 필요 약 {1}":"{0} 空き · 必要 約{1}","게임 받기 (apkpure)":"ゲームを取得 (apkpure)","자동":"自動","게임이 있는 VM → 보관된 파일 → apkpure 순서로 설치해요":"ゲームが入ったVM → 保存済みファイル → apkpureの順にインストールします","셐 매크로 창의 브라우저로 apkpure에서 받아 설치해요":"セカマクロのウィンドウのブラウザでapkpureから取得してインストールします","게임 없이 VM만 만들어요":"ゲームなしでVMだけ作ります","게임 페이지 (apkpure)":"ゲームページ (apkpure)","게임 파일 받기":"ゲームファイルを取得","apkpure 최신 버전을 셐 매크로 창에서 받아 설치하고 QooApp도 깔아요":"apkpureの最新版をアプリのウィンドウで取得してインストールし、QooAppも入れます","게임 업데이트":"ゲーム更新","게임을 업데이트할까요?":"ゲームを更新しますか？","apkpure 최신 버전으로 올려요. 매크로가 돌고 있는 VM은 건너뛰고, 계정과 데이터는 그대로예요.":"apkpureの最新版に更新します。マクロ実行中のVMはスキップし、アカウントとデータはそのままです。","＋ VM 만들기":"＋ VMを作成","복제는 인스턴스를 하나만 골라주세요":"複製はインスタンスを1つだけ選んでください","· {0} 이벤트 유닛":"· {0} のイベントユニット","이벤트 유닛과 달라요":"イベントのユニットと違います","지금 이벤트({0})의 유닛은 {1}이에요. 고른 유닛은 {2}예요. 그대로 진행할까요?":"現在のイベント（{0}）のユニットは{1}です。選んだユニットは{2}です。このまま進めますか？","그대로 진행":"このまま進める","인스턴스마다 지금 코드를 그대로 써요":"インスタンスごとに今のコードをそのまま使います","· 대기열 {0}개":"· 待機列 {0}件","등록된 초대 코드가 없어요":"登録された招待コードがありません","일회용 코드 사용 횟수가 {0}회예요":"使い捨てコードの使用回数は{0}回です","{0}은 등록된 초대 코드가 없어요":"{0}は登録された招待コードがありません","{0}은 일회용 코드 사용 횟수가 {1}회예요":"{0}は使い捨てコードの使用回数が{1}回です","초대 코드를 넣으면 반복할 수 있어요":"招待コードを入れると繰り返せます","지울 때까지 계속 이 코드로 초대해요":"消すまでこのコードで招待し続けます"},"en":{"셐친구초대매크로":"SekaiFriendsMacro","모든 VM 화면 새로 캡쳐":"Capture every VM screen","캡쳐":"Capture","전체":"all","창 정렬":"Arrange","검증":"Validate","원격 접속":"Remote access","실행 중":"Running","VM 켜짐":"VMs on","완료":"Done","전체 선택":"Select all","선택 해제":"Deselect","이어하기":"Resume","단계 실행":"Run stages","처음부터":"From scratch","중지":"Stop","실행":"Run","시작 지점":"Start point","세부 지점 직접 선택":"Pick a specific step","단계":"Stages","반복":"Loops","줄이기":"Decrease","늘리기":"Increase","게임 데이터를 지우고 새 계정으로 시작해요. 지금 계정이 필요하면 먼저 인계 코드를 발급하거나 계정 연동을 해두세요.":"This erases the game data and starts a new account. If you need the current account, issue a transfer code or link the account first.","유닛":"Unit","초대 코드":"Invitation code","그대로":"Keep","바꾸기":"Replace","대기열 추가":"Add to queue","지우기":"Clear","영문/숫자 15자 · 선택한 인스턴스 모두에 저장":"15 letters or digits · saved to every selected instance","영문/숫자 15자":"15 letters or digits","일회용":"Single-use","영구":"Permanent","횟수":"Uses","꺼진 VM은 켜고 시작":"Boot VMs that are off","부팅이 끝나면 자동으로 이어갑니다":"Continues automatically after boot","시작":"Start","실시간":"Live","직접 조작":"Manual control","뒤로":"Back","홈":"Home","저장":"Save","초대 기록":"Invitation history","잠금":"Locked","시작, VM 조작, 자동 초대 입력을 막아요":"Blocks starting, VM actions and automatic invitation entry","상태":"Status","지금 쓰기":"Use now","매크로":"Macro","강제 종료":"Force stop","켜기":"Turn on","게임 실행":"Launch game","재부팅":"Reboot","끄기":"Turn off","같은 네트워크의 휴대폰이나 다른 PC에서 엽니다":"Open it from a phone or another PC on the same network","원격 접속 허용":"Allow remote access","포트 8787 · 같은 네트워크에서 누구나 열 수 있어요":"Port 8787 · anyone on the same network can open it","취소":"Cancel","확인":"OK","언어":"Language","선택":"Select","화면 없음":"No screen","꺼짐":"Off","초대 대기":"Awaiting invite","멈춤":"Halted","대기":"Idle","방금":"just now","{0}초 전":"{0}s ago","{0}분 전":"{0}m ago","{0}시간 전":"{0}h ago","{0}일 전":"{0}d ago","등록됨":"Registered","거절됨":"Rejected","확인 중":"Checking","{0}/{1}회차":"Loop {0}/{1}","닉네임 미확인":"Unknown nickname","초대 코드 있음":"Has invitation code","초대 코드 없음":"No invitation code","{0}번":"#{0}","잠긴 인스턴스는 선택할 수 없어요":"Locked instances cannot be selected","잠금 해제":"Unlock","잠그기":"Lock","기록 없음":"No record","{0}개 선택":"{0} selected","· 순서대로 진행":"· runs in order","· 초기화 없이 진행":"· runs without a reset","{0}대 초기화 후 시작":"Reset and start {0}","{0}대 시작":"Start {0}","{0}은 영구 초대 코드가 없어요":"{0}: no permanent invitation code","회차마다 새 계정으로 초대 코드를 등록해요":"Each loop registers the invitation code on a new account","{0}회":"{0}×","· 지금":"· now","없음":"none","단계를 하나 이상 고르세요":"Pick at least one stage","초대 코드는 영문/숫자 15자예요":"Invitation codes are 15 letters or digits","계정을 초기화할까요?":"Reset the accounts?","{0}은 새 계정으로 로그인돼요. 지금 계정이 필요하면 인계 코드를 발급하거나 연동을 먼저 해두세요.":"{0} will sign in with a new account. If you need the current account, issue a transfer code or link it first."," 끝나면 다시 초기화해서 총 {0}회 반복해요.":" When done it resets again, {0} loops in total.","초기화 후 시작":"Reset and start","{0}대 시작했어요":"Started {0}","매크로를 멈출까요?":"Stop the macros?","{0} · 현재 단계가 끝나면 멈추고 게임은 그대로 둡니다.":"{0} · stops after the current stage and leaves the game as is.","{0}대 중지 요청했어요":"Requested a stop for {0}","지점":"Step","진행":"Progress","회차":"Loop","업데이트":"Update","마지막 화면":"Last screen","실시간 끄기":"Stop live","먼저 캡쳐하세요":"Capture first","로그 없음":"No log","영구 {0}회":"Permanent ×{0}","한 번 등록되면 다음 코드로 넘어가요":"Moves to the next code after one registration","{0}번 등록되면 다음 코드로 넘어가요":"Moves to the next code after {0} registrations"," · 지금 쓰면 바로 입력해요":" · using it now enters it right away","지금":"Now","전체 {0}/{1}":"total {0}/{1}","저장된 코드 없음":"No saved code","대기열에서 빼기":"Remove from queue","{0}회차":"loop {0}","직접 입력":"Manual","보상 화면 보기":"View reward screen","아직 없음":"Nothing yet","강제 종료할까요?":"Force stop?","진행 중인 동작이 즉시 끊깁니다. 보통은 중지를 쓰세요.":"The current action is cut off immediately. Use Stop normally.","VM을 끌까요?":"Turn off the VM?","실행 중인 매크로가 있으면 함께 중지합니다.":"Any running macro stops too.","VM을 재부팅할까요?":"Reboot the VM?","켜진 VM이 없어요":"No VMs are on","캡쳐하는 중…":"Capturing…","{0}대 캡쳐 완료":"Captured {0}","복사":"Copy","복사했어요":"Copied","원격 접속을 켰어요":"Remote access is on","원격 접속을 껐어요":"Remote access is off","단계 시작":"Stage start","세부 지점":"Specific step","반복 회차":"Loops","LD플레이어를 찾지 못했어요. ldconsole.exe가 있는 폴더를 알려주세요.":"LDPlayer was not found. Enter the folder that has ldconsole.exe.","예: D:\\LDPlayer\\LDPlayer9":"e.g. D:\\LDPlayer\\LDPlayer9","VM 관리":"VMs","LD플레이어 VM을 만들고 복제하고 세팅해요":"Create, copy and set up LDPlayer VMs","LD플레이어":"LDPlayer","폴더":"Folder","버전":"Version","새 VM 세팅":"New VM setup","게임 설치":"Game install","apkpure에서 받기":"From apkpure","다른 VM에서 복사":"Copy from a VM","설치 안 함":"Skip","튜토리얼·데이터 다운로드까지 세팅":"Run the tutorial and data download","초기 튜토리얼을 끝내고 게임 데이터를 받아둬요":"Finishes the first tutorial and downloads the game data","처음부터 실행으로 모든 단계를 진행해요":"Runs every stage from scratch","영문/숫자 15자 · 비워두면 초대 없이 진행":"15 letters or digits · leave empty to skip invitations","복제":"Copy","VM 삭제":"Remove VM","VM 세팅 중":"Setting up VMs","찾지 못함":"Not found","지금 버전 받기 ({0})":"Get this version ({0})","검증된 버전 받기 ({0})":"Get the tested version ({0})","LD플레이어 9 최신 버전":"Latest LDPlayer 9","공식 사이트":"Official site","진행 중":"Running","실패":"Failed","취소됨":"Cancelled","멈추기":"Stop","{0} 복제":"Copy {0}","복제할 개수":"Copies","만들 VM 수":"VMs to make","{0}대":"{0}","1대를 세팅한 뒤 {0}대를 복제해요":"Sets up one VM, then makes {0} copies","1대만 만들어요":"Makes one VM","복제한 VM에서 바로 매크로 시작":"Start macros on the copies","세팅 후 바로 매크로 시작":"Start macros after setup","{0}대 복제":"Make {0} copies","세팅 시작":"Start setup","VM {0}대를 세팅할까요?":"Set up {0} VMs?","게임 설치와 튜토리얼에 시간이 걸려요. 진행 상황은 이 창과 카드에서 볼 수 있어요.":"Installing the game and the tutorial take a while. Follow progress here and on the cards.","{0} VM을 지울까요?":"Remove the {0} VM?","LD플레이어에서 VM이 완전히 삭제돼요. 매크로 기록은 local/removed에 남아요.":"The VM is deleted from LDPlayer. Macro records stay in local/removed.","삭제":"Remove","반복하려면 영구 초대 코드를 넣으세요":"Loops need a permanent invitation code","디스크":"Disk","{0} 남음 · 필요 약 {1}":"{0} free · needs about {1}","게임 받기 (apkpure)":"Get the game (apkpure)","자동":"Auto","게임이 있는 VM → 보관된 파일 → apkpure 순서로 설치해요":"Installs from a VM with the game, then kept files, then apkpure","셐 매크로 창의 브라우저로 apkpure에서 받아 설치해요":"Downloads from apkpure in the app window's browser and installs","게임 없이 VM만 만들어요":"Creates the VM without the game","게임 페이지 (apkpure)":"Game page (apkpure)","게임 파일 받기":"Download the game file","apkpure 최신 버전을 셐 매크로 창에서 받아 설치하고 QooApp도 깔아요":"Gets the latest version from apkpure in the app window, installs it and adds QooApp","게임 업데이트":"Update the game","게임을 업데이트할까요?":"Update the game?","apkpure 최신 버전으로 올려요. 매크로가 돌고 있는 VM은 건너뛰고, 계정과 데이터는 그대로예요.":"Updates to the latest apkpure version. VMs running a macro are skipped; accounts and data stay.","＋ VM 만들기":"＋ New VM","복제는 인스턴스를 하나만 골라주세요":"Select one instance to copy","· {0} 이벤트 유닛":"· unit of {0}","이벤트 유닛과 달라요":"Not the event unit","지금 이벤트({0})의 유닛은 {1}이에요. 고른 유닛은 {2}예요. 그대로 진행할까요?":"The current event ({0}) is for {1}, but {2} is selected. Continue anyway?","그대로 진행":"Continue anyway","인스턴스마다 지금 코드를 그대로 써요":"Each instance keeps its current code","· 대기열 {0}개":"· {0} queued","등록된 초대 코드가 없어요":"No invitation code saved","일회용 코드 사용 횟수가 {0}회예요":"The single-use code has {0} uses","{0}은 등록된 초대 코드가 없어요":"{0}: no invitation code saved","{0}은 일회용 코드 사용 횟수가 {1}회예요":"{0}: the single-use code has {1} uses","초대 코드를 넣으면 반복할 수 있어요":"Enter an invitation code to loop","지울 때까지 계속 이 코드로 초대해요":"Keeps inviting with this code until deleted"}};
 // BlueStacks (macOS) wording.
 Object.assign(DICT.ja,{"블루스택":"BlueStacks","＋ VM 세팅":"＋ VM準備","세팅할 VM":"準備するVM","VM은 블루스택 멀티 인스턴스 매니저에서 만들어요":"VMはBlueStacksのマルチインスタンスマネージャーで作ります","블루스택 VM에 게임을 설치하고 세팅해요":"BlueStacksのVMにゲームを入れて準備します","BlueStacks Air 받기":"BlueStacks Airを入手","apkpure 최신 버전을 브라우저에서 받아 설치하고 QooApp도 깔아요":"apkpureの最新版をブラウザで取得してインストールし、QooAppも入れます","게임은 그대로 두고 세팅만 해요":"ゲームはそのままで準備だけします","{0}을 세팅할까요?":"{0}を準備しますか？","잠기지 않은 VM이 없어요":"ロックされていないVMがありません"});
 Object.assign(DICT.en,{"블루스택":"BlueStacks","＋ VM 세팅":"＋ Set up VM","세팅할 VM":"VM to set up","VM은 블루스택 멀티 인스턴스 매니저에서 만들어요":"Create VMs in the BlueStacks multi-instance manager","블루스택 VM에 게임을 설치하고 세팅해요":"Install the game on a BlueStacks VM and set it up","BlueStacks Air 받기":"Get BlueStacks Air","apkpure 최신 버전을 브라우저에서 받아 설치하고 QooApp도 깔아요":"Downloads the latest apkpure version in the browser, installs it and adds QooApp","게임은 그대로 두고 세팅만 해요":"Keeps the installed game and only sets up","{0}을 세팅할까요?":"Set up {0}?","잠기지 않은 VM이 없어요":"No unlocked VM"});
@@ -577,7 +609,15 @@ Object.assign(DICT.ja,{"초대 코드":"招待コード","지금 코드":"現在
   "새 버전 v{0}이(가) 나왔지만 이 운영체제용 파일이 아직 없습니다.":"新バージョン v{0} がありますが、このOS用のファイルがまだありません。",
   "새 버전 v{0}이(가) 나왔어요 (현재 v{1}). 지금 업데이트할까요? 받은 뒤 자동으로 다시 열려요.":"新バージョン v{0} があります（現在 v{1}）。今すぐ更新しますか？取得後に自動で開き直します。",
   "새 버전 v{0}이(가) 나왔어요 (현재 v{1}). 다운로드할까요?":"新バージョン v{0} があります（現在 v{1}）。ダウンロードしますか？",
-  "지금 업데이트":"今すぐ更新","다운로드":"ダウンロード","나중에":"あとで","업데이트 다운로드 및 설치 중… 잠시 후 자동으로 다시 열립니다.":"アップデートを取得・インストール中… まもなく自動で再起動します。","가챠 스킵":"ガチャスキップ","가챠 안 돌려도 스토리 해금 가능":"ガチャを引かなくてもストーリー解放可能"});
+  "지금 업데이트":"今すぐ更新","다운로드":"ダウンロード","나중에":"あとで","업데이트 다운로드 및 설치 중… 잠시 후 자동으로 다시 열립니다.":"アップデートを取得・インストール中… まもなく自動で再起動します。","가챠 스킵":"ガチャスキップ","가챠 안 돌려도 스토리 해금 가능 · 실행 중 변경 시 다음 회차부터 적용":"ガチャを引かなくてもストーリー解放可能 · 実行中に変更すると次の周回から適用",
+  "가챠 스킵 켰어요":"ガチャスキップをオンにしました","가챠 스킵 껐어요":"ガチャスキップをオフにしました",
+  "가챠 스킵 켰어요 · 실행 중인 VM은 다음 회차부터 적용":"ガチャスキップをオンにしました · 実行中のVMは次の周回から適用","가챠 스킵 껐어요 · 실행 중인 VM은 다음 회차부터 적용":"ガチャスキップをオフにしました · 実行中のVMは次の周回から適用",
+  "유닛을 맞게 고르면 가챠를 스킵해도 무방합니다":"ユニットを正しく選べばガチャをスキップしても問題ありません",
+  "로그":"ログ","가동시간":"稼働時間","이번 턴 총 가동시간":"今周の合計稼働時間","가동 기록 없음":"稼働記録がありません",
+  "재시작 후 복귀":"再起動後に復帰","재시작 {0}회 · {1}":"再起動 {0}回 · {1}","이전 턴 기록":"過去の周回記録",
+  "진행 중":"進行中","완료":"完了","중지됨":"停止","실패":"失敗",
+  "타이틀 멈춤":"タイトル停止","게임 재실행":"ゲーム再起動","VM 재부팅":"VM再起動","스테이지 재시도":"段階リトライ","새 계정 재시작":"新アカウントやり直し",
+  "{0}시간 {1}분 {2}초":"{0}時間{1}分{2}秒","{0}분 {1}초":"{0}分{1}秒","{0}초":"{0}秒"});
 Object.assign(DICT.en,{"초대 코드":"Invitation code","지금 코드":"Current codes","새 코드":"New code","{0}대에 초대 코드를 저장했어요":"Saved the invitation code on {0}","{0}대 대기열에 추가했어요":"Queued the code on {0}",
   "{0} VM을 만들고 복제하고 세팅해요":"Create, copy and set up {0} VMs","{0} VM에 게임을 설치하고 세팅해요":"Install the game on a {0} VM and set it up","{0}에서 VM이 완전히 삭제돼요. 매크로 기록은 local/removed에 남아요.":"The VM is deleted from {0}. Macro records stay in local/removed.",
   "VM은 {0} 멀티 인스턴스 매니저에서 만들어요":"Create VMs in the {0} multi-instance manager",
@@ -586,7 +626,15 @@ Object.assign(DICT.en,{"초대 코드":"Invitation code","지금 코드":"Curren
   "새 버전 v{0}이(가) 나왔지만 이 운영체제용 파일이 아직 없습니다.":"Version v{0} is out, but the package for this OS is not ready yet.",
   "새 버전 v{0}이(가) 나왔어요 (현재 v{1}). 지금 업데이트할까요? 받은 뒤 자동으로 다시 열려요.":"Version v{0} is available (current v{1}). Update now? The app will reopen automatically.",
   "새 버전 v{0}이(가) 나왔어요 (현재 v{1}). 다운로드할까요?":"Version v{0} is available (current v{1}). Download it now?",
-  "지금 업데이트":"Update now","다운로드":"Download","나중에":"Later","업데이트 다운로드 및 설치 중… 잠시 후 자동으로 다시 열립니다.":"Downloading and installing update… The app will reopen shortly.","가챠 스킵":"Skip gacha","가챠 안 돌려도 스토리 해금 가능":"Stories can be unlocked without pulling gacha"});
+  "지금 업데이트":"Update now","다운로드":"Download","나중에":"Later","업데이트 다운로드 및 설치 중… 잠시 후 자동으로 다시 열립니다.":"Downloading and installing update… The app will reopen shortly.","가챠 스킵":"Skip gacha","가챠 안 돌려도 스토리 해금 가능 · 실행 중 변경 시 다음 회차부터 적용":"Stories unlock without gacha · changes apply from the next loop",
+  "가챠 스킵 켰어요":"Gacha skip enabled","가챠 스킵 껐어요":"Gacha skip disabled",
+  "가챠 스킵 켰어요 · 실행 중인 VM은 다음 회차부터 적용":"Gacha skip enabled · running VMs apply it on the next loop","가챠 스킵 껐어요 · 실행 중인 VM은 다음 회차부터 적용":"Gacha skip disabled · running VMs apply it on the next loop",
+  "유닛을 맞게 고르면 가챠를 스킵해도 무방합니다":"With the right unit picked, skipping gacha is safe",
+  "로그":"Log","가동시간":"Runtime","이번 턴 총 가동시간":"Total runtime (this turn)","가동 기록 없음":"No runtime record yet",
+  "재시작 후 복귀":"Restart & recover","재시작 {0}회 · {1}":"{0} restarts · {1}","이전 턴 기록":"Previous turns",
+  "진행 중":"Running","완료":"Complete","중지됨":"Stopped","실패":"Failed",
+  "타이틀 멈춤":"Title stall","게임 재실행":"Game restart","VM 재부팅":"VM reboot","스테이지 재시도":"Stage retry","새 계정 재시작":"Fresh start",
+  "{0}시간 {1}분 {2}초":"{0}h {1}m {2}s","{0}분 {1}초":"{0}m {1}s","{0}초":"{0}s"});
 const isMac=()=>state.meta?.emulator==='bluestacks';
 const block=()=>state.meta?.block||1000;
 const emus=()=>state.meta?.emulators||[];
@@ -602,7 +650,7 @@ function t(k,...a){return (DICT[lang]?.[k]??k).replace(/\{(\d)\}/g,(_,i)=>a[i])}
 const nth=n=>t('{0}번',n%block()),nths=ns=>ns.map(nth).join(', ');
 const original=new WeakMap();
 function translatePage(){
-  document.documentElement.lang=lang;document.title=t('셐 매크로');
+  document.documentElement.lang=lang;document.title=t('셐친구초대매크로');
   const walk=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT,{acceptNode:n=>n.parentElement.closest('script,style')?NodeFilter.FILTER_REJECT:NodeFilter.FILTER_ACCEPT});
   for(let n;n=walk.nextNode();){if(!original.has(n))original.set(n,n.nodeValue);const o=original.get(n),k=o.trim();if(k)n.nodeValue=o.replace(k,t(k))}
   for(const el of document.querySelectorAll('[placeholder],[title],[aria-label]'))for(const a of ['placeholder','title','aria-label']){
@@ -613,6 +661,18 @@ translatePage();
 const state={meta:null,list:[],sel:new Set(),detail:null,live:false,tap:false,local:false,mode:'resume',point:'saved',stages:[],skipGacha:true,unit:'mmj',boot:true,targets:[],loops:1,inv:{mixed:false,orig:'',origMode:'permanent',origLimit:1}};
 const GACHA_SKIP=['gacha','deck'];
 const defaultStages=()=>state.meta.plan.filter(s=>!state.skipGacha||!GACHA_SKIP.includes(s));
+let skipGachaSaving=false;
+function syncStagesGacha(){
+  if(!state.meta)return;
+  const order=state.meta.stages.map(s=>s.name);
+  if(state.skipGacha)state.stages=state.stages.filter(s=>!GACHA_SKIP.includes(s));
+  else{for(const s of GACHA_SKIP)if(!state.stages.includes(s))state.stages.push(s);state.stages.sort((a,b)=>order.indexOf(a)-order.indexOf(b))}
+}
+function renderSkipGacha(){
+  const b=$('#skipGachaBtn');if(!b)return;
+  b.classList.toggle('on',state.skipGacha);b.setAttribute('aria-pressed',String(state.skipGacha));
+  b.querySelector('.mini-sw').classList.toggle('on',state.skipGacha);
+}
 const LOCK='<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="7" width="10" height="7" rx="2" fill="currentColor" stroke="none"/><path d="M5.2 7V5a2.8 2.8 0 0 1 5.6 0v2"/></svg>';
 const UNLOCK='<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="7" width="10" height="7" rx="2" fill="currentColor" stroke="none"/><path d="M5.2 7V5a2.8 2.8 0 0 1 5.4-1"/></svg>';
 const CHECK='<svg width="14" height="14" viewBox="0 0 14 14"><path d="M3 7.2l2.6 2.6L11 4.4" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
@@ -641,6 +701,8 @@ function invField(sel,changed){
 
 async function api(path,body){
   const r=await fetch('/api'+path,body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const sg=r.headers.get('x-skip-gacha');
+  if(sg!=null&&!skipGachaSaving){const v=sg==='1';if(v!==state.skipGacha){state.skipGacha=v;syncStagesGacha();renderSkipGacha();if($('#runSheet').classList.contains('show'))renderStages()}}
   const type=r.headers.get('content-type')||'';
   const data=type.includes('json')?await r.json():await r.text();
   if(!r.ok) throw new Error(data.message||data||r.statusText);
@@ -804,7 +866,7 @@ function setMode(m){state.mode=m;$$('#modeSeg button').forEach(b=>b.classList.to
   $('#paneUnit').style.display=m==='resume'?'none':'';$('#resetNote').style.display=m==='run'?'':'none';
   $('#stageHint').textContent=t(m==='run'?'· 순서대로 진행':'· 초기화 없이 진행');
   $('#paneLoop').style.display=m==='run'?'':'none';
-  if(m==='run'&&!state.stages.includes('onboarding'))state.stages=defaultStages();
+  if(m==='run'){if(!state.stages.includes('onboarding'))state.stages=defaultStages();else syncStagesGacha();}
   renderStages();
   const go=$('#runGo');go.className='btn block '+(m==='run'?'danger':'primary');go.textContent=t(m==='run'?'{0}대 초기화 후 시작':'{0}대 시작',state.targets.length);
   if(m==='run')renderLoop();}
@@ -846,12 +908,11 @@ function renderInv(){
 $('#loopDown').onclick=()=>{state.loops=Math.max(1,state.loops-1);renderLoop()};
 $('#loopUp').onclick=()=>{state.loops=Math.min(99,state.loops+1);renderLoop()};
 function renderStages(){
-  $('#skipGachaSw .sw').classList.toggle('on',state.skipGacha);
   const chips=$('#stageChips');chips.innerHTML='';
   const order=state.meta.stages.map(s=>s.name);
   state.meta.stages.forEach(s=>{const b=document.createElement('button');const idx=state.stages.indexOf(s.name);b.className='tog'+(idx>=0?' on':'');
     b.innerHTML=(idx>=0?`<span class="n">${idx+1}</span>`:'')+esc(s.title);
-    b.onclick=()=>{const k=state.stages.indexOf(s.name);if(k>=0)state.stages.splice(k,1);else{state.stages.push(s.name);state.stages.sort((a,b)=>order.indexOf(a)-order.indexOf(b))}state.skipGacha=GACHA_SKIP.every(n=>!state.stages.includes(n));renderStages()};chips.appendChild(b)});
+    b.onclick=()=>{const k=state.stages.indexOf(s.name);if(k>=0)state.stages.splice(k,1);else{state.stages.push(s.name);state.stages.sort((a,b)=>order.indexOf(a)-order.indexOf(b))}renderStages()};chips.appendChild(b)});
 }
 function renderPoints(){
   const box=$('#points');box.innerHTML='';
@@ -874,12 +935,18 @@ function openRun(mode,targets){
 $$('#modeSeg button').forEach(b=>b.onclick=()=>setMode(b.dataset.mode));
 $('#pointDetail').onchange=e=>{if(e.target.value){state.point=e.target.value;renderPoints()}};
 $('#bootSw').onclick=()=>{state.boot=!state.boot;$('#bootSw .sw').classList.toggle('on',state.boot)};
-$('#skipGachaSw').onclick=()=>{
-  state.skipGacha=!state.skipGacha;
-  const order=state.meta.stages.map(s=>s.name);
-  if(state.skipGacha)state.stages=state.stages.filter(s=>!GACHA_SKIP.includes(s));
-  else{for(const s of GACHA_SKIP)if(!state.stages.includes(s))state.stages.push(s);state.stages.sort((a,b)=>order.indexOf(a)-order.indexOf(b))}
-  renderStages();
+$('#skipGachaBtn').onclick=async()=>{
+  const next=!state.skipGacha;
+  skipGachaSaving=true;
+  state.skipGacha=next;syncStagesGacha();renderSkipGacha();
+  try{
+    const res=await api('/skip-gacha',{skipGacha:next});
+    state.skipGacha=!!res.skipGacha;syncStagesGacha();renderSkipGacha();
+    const running=state.list.some(i=>i.workerRunning);
+    toast(t(state.skipGacha?(running?'가챠 스킵 켰어요 · 실행 중인 VM은 다음 회차부터 적용':'가챠 스킵 켰어요')
+      :(running?'가챠 스킵 껐어요 · 실행 중인 VM은 다음 회차부터 적용':'가챠 스킵 껐어요')));
+  }catch(e){state.skipGacha=!next;syncStagesGacha();renderSkipGacha();toast(e.message,true)}
+  finally{skipGachaSaving=false}
 };
 $$('[data-run]').forEach(b=>b.onclick=()=>openRun(b.dataset.run,[...state.sel].sort((a,b)=>a-b)));
 $('#runGo').onclick=async()=>{
@@ -924,12 +991,22 @@ $('#bInvQueue').onclick=()=>sendInvites('invite/queue');
 /* Detail */
 function releasePreviewImage(img){if(img?.dataset.blobUrl){URL.revokeObjectURL(img.dataset.blobUrl);delete img.dataset.blobUrl}}
 function setPreviewImage(img,src,blob=false){releasePreviewImage(img);if(blob)img.dataset.blobUrl=src;img.src=src}
-let liveTimer,logTimer,shotUrl;
+let liveTimer,logTimer,timingTick,shotUrl,dTab='log',timingData=null,timingOffset=0;
 function clearShot(){if(shotUrl)URL.revokeObjectURL(shotUrl);shotUrl=null;$('#screenImg').removeAttribute('src')}
 function cur(n=state.detail){return state.list.find(i=>i.instance===n)}
-function openDetail(n){clearShot();state.detail=n;state.tap=false;state.live=false;$('#stamp').textContent='';
-  $('#invQueue').innerHTML='';dInv.set('','permanent',1,null);$('#hist').innerHTML='';renderDetail();show('#detail');loadFrame();loadLog();loadInvite();logTimer=setInterval(()=>{loadLog();loadInvite()},2500)}
-function closeDetail(){state.detail=null;clearInterval(liveTimer);clearInterval(logTimer);state.live=false;clearShot()}
+function setDetailTab(tab){
+  dTab=tab;
+  $$('#dTabs button').forEach(b=>b.classList.toggle('on',b.dataset.dtab===tab));
+  $('#log').style.display=tab==='log'?'':'none';
+  $('#timingPane').style.display=tab==='timing'?'':'none';
+  if(tab==='timing'){renderTiming();loadTiming()}
+}
+$$('#dTabs button').forEach(b=>b.onclick=()=>setDetailTab(b.dataset.dtab));
+function openDetail(n){clearShot();state.detail=n;state.tap=false;state.live=false;timingData=null;$('#stamp').textContent='';
+  $('#invQueue').innerHTML='';dInv.set('','permanent',1,null);$('#hist').innerHTML='';setDetailTab(dTab);renderDetail();show('#detail');loadFrame();loadLog();loadTiming();loadInvite();
+  logTimer=setInterval(()=>{loadLog();loadInvite();if(dTab==='timing')loadTiming()},2500);
+  timingTick=setInterval(()=>{if(dTab==='timing'&&timingData?.current?.status==='running')renderTiming()},1000)}
+function closeDetail(){state.detail=null;clearInterval(liveTimer);clearInterval(logTimer);clearInterval(timingTick);state.live=false;clearShot()}
 function renderDetail(){
   const i=cur();if(!i)return;const [,label]=status(i);
   $('#dTitle').textContent=nth(i.instance);$('#dSub').textContent=i.name;
@@ -974,6 +1051,58 @@ async function loadLog(){
   try{const text=await api(`/instances/${n}/log?lines=300`);if(state.detail!==n)return;
     box.innerHTML=text.split('\n').map(l=>{const c=/Exception|Timed out|failed|실패|失敗/.test(l)?'e':/\[(제어판|コントロール|Control)\]/.test(l)?'c':'';return c?`<span class="${c}">${esc(l)}</span>`:esc(l)}).join('\n')||`<span style="color:var(--text-3)">${t('로그 없음')}</span>`;
     if(atBottom)box.scrollTop=box.scrollHeight}catch(e){}
+}
+function fmtDur(ms){
+  const s=Math.max(0,Math.floor(ms/1000)),h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=s%60;
+  if(h>0)return t('{0}시간 {1}분 {2}초',h,m,sec);
+  if(m>0)return t('{0}분 {1}초',m,sec);
+  return t('{0}초',sec);
+}
+function fmtClock(iso){return new Date(iso).toLocaleTimeString(LOCALE[lang],{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false})}
+const TIMING_STATUS={running:'진행 중',complete:'완료',stopped:'중지됨',failed:'실패'};
+const RESTART_DETAIL={title:'타이틀 멈춤',game:'게임 재실행',vm:'VM 재부팅','stage-retry':'스테이지 재시도','fresh-start':'새 계정 재시작'};
+function stageName(key){return state.meta?.stages.find(s=>s.name===key)?.title||key||'-'}
+function renderTiming(){
+  const box=$('#timingPane');if(!box)return;
+  const c=timingData?.current;
+  if(!c){box.innerHTML=`<div style="color:var(--text-3);padding:4px 0">${t('가동 기록 없음')}</div>`;return}
+  const now=Date.now()-timingOffset;
+  const turnEnd=c.ended?Date.parse(c.ended):now;
+  const totalMs=Math.max(0,turnEnd-Date.parse(c.started));
+  const restarts=c.entries.filter(e=>e.kind==='restart');
+  const restartMs=restarts.reduce((a,e)=>a+Math.max(0,(e.ended?Date.parse(e.ended):now)-Date.parse(e.started)),0);
+  const turnLabel=c.loopTotal>1?t('{0}/{1}회차',c.loopIndex,c.loopTotal):c.mode==='stages'?t('단계 실행'):c.mode==='resume'?t('이어하기'):t('처음부터');
+  const stLabel=t(TIMING_STATUS[c.status]||c.status);
+  const rows=c.entries.map(e=>{
+    const endMs=e.ended?Date.parse(e.ended):now;
+    const dur=Math.max(0,endMs-Date.parse(e.started));
+    const range=`${fmtClock(e.started)} ~ ${e.ended?fmtClock(e.ended):t('진행 중')}`;
+    if(e.kind==='restart'){
+      const sub=e.detail&&RESTART_DETAIL[e.detail]?` · ${t(RESTART_DETAIL[e.detail])}`:'';
+      return `<div class="trow restart"><span class="tname">${esc(t('재시작 후 복귀')+sub)}</span><span class="ttime">${esc(range)}</span><b class="tdur">${esc(fmtDur(dur))}</b></div>`;
+    }
+    return `<div class="trow"><span class="tname">${esc(stageName(e.stage))}</span><span class="ttime">${esc(range)}</span><b class="tdur">${esc(fmtDur(dur))}</b></div>`;
+  }).join('');
+  const hist=(timingData.history||[]).map(h=>{
+    const hEnd=h.ended?Date.parse(h.ended):Date.parse(h.started);
+    const hDur=Math.max(0,hEnd-Date.parse(h.started));
+    const hRs=h.entries.filter(e=>e.kind==='restart').length;
+    const hLbl=h.loopTotal>1?t('{0}회차',h.loopIndex):h.mode==='stages'?t('단계 실행'):t('처음부터');
+    return `<div class="trow"><span class="tname">${esc(hLbl)} · ${esc(t(TIMING_STATUS[h.status]||h.status))}${hRs?` <span style="color:var(--red)">(${t('재시작 {0}회 · {1}',hRs,fmtDur(h.entries.filter(e=>e.kind==='restart').reduce((a,e)=>a+Math.max(0,(e.ended?Date.parse(e.ended):hEnd)-Date.parse(e.started)),0)))})</span>`:''}</span><span class="ttime">${fmtClock(h.started)}</span><b class="tdur">${esc(fmtDur(hDur))}</b></div>`;
+  }).join('');
+  box.innerHTML=`<div class="tsum"><div class="tmain"><span>${t('이번 턴 총 가동시간')}</span><b>${esc(fmtDur(totalMs))}</b></div>
+    <div class="tmeta"><span>${esc(turnLabel)}</span><span>·</span><span>${esc(stLabel)}</span>${restarts.length?`<span>·</span><span class="trestart">${esc(t('재시작 {0}회 · {1}',restarts.length,fmtDur(restartMs)))}</span>`:''}</div></div>
+    <div class="tlist">${rows||`<div style="color:var(--text-3);padding:4px 0">${t('가동 기록 없음')}</div>`}</div>
+    ${hist?`<div class="thist"><h4>${t('이전 턴 기록')}</h4>${hist}</div>`:''}`;
+}
+async function loadTiming(){
+  const n=state.detail;if(n==null)return;
+  try{
+    const d=await api(`/instances/${n}/timing`);if(state.detail!==n)return;
+    timingData=d;
+    if(d.now)timingOffset=Date.now()-Date.parse(d.now);
+    if(dTab==='timing')renderTiming();
+  }catch(e){}
 }
 $$('[data-one]').forEach(b=>b.onclick=()=>openRun(b.dataset.one,[state.detail]));
 $$('[data-dl]').forEach(b=>b.onclick=()=>{const lp=cur()?.loop;if(lp)act(()=>api(`/instances/${state.detail}/loop`,{total:lp.total+ +b.dataset.dl}))});
@@ -1191,6 +1320,7 @@ $('#updateBtn').onclick=()=>checkUpdate(true);
   $('#arrange').style.display=curTab()&&!curTab().canArrange?'none':'';
   // The server's language is shared by every client (and its messages and logs); follow it.
   if(state.meta.language&&state.meta.language!==lang){lang=state.meta.language;try{localStorage.setItem('lang',lang)}catch(e){}translatePage()}
+  state.skipGacha=state.meta.skipGacha??true;renderSkipGacha();
   state.stages=defaultStages();
   fillUnits($('#unitSeg'),k=>{state.unit=k;markUnits($('#unitSeg'),'#unitHint',k)});
   loadEvent();setInterval(loadEvent,10*60e3);

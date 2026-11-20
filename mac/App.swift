@@ -47,14 +47,47 @@ func panelRunning() -> Bool {
     }
 }
 
-func page(_ text: String) -> String {
+func appLang() -> String {
+    let file = workspace.appendingPathComponent("local/language.txt")
+    if let saved = (try? String(contentsOf: file, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines),
+       ["ko", "ja", "en"].contains(saved) { return saved }
+    let sys = Locale.preferredLanguages.first?.lowercased() ?? "ko"
+    if sys.hasPrefix("ja") { return "ja" }
+    if sys.hasPrefix("en") { return "en" }
+    return "ko"
+}
+
+func appName() -> String {
+    switch appLang() {
+    case "ja": return "セカフレンド招待マクロ"
+    case "en": return "SekaiFriendsMacro"
+    default: return "셐친구초대매크로"
+    }
+}
+
+func t(_ ko: String, _ ja: String, _ en: String) -> String {
+    switch appLang() {
+    case "ja": return ja
+    case "en": return en
+    default: return ko
+    }
+}
+
+func page(_ text: String, retry: Bool = false) -> String {
     let escaped = text.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;")
+    let retryLabel = t("다시 로드", "再読み込み", "Reload")
+    let button = retry ? """
+    <div style="margin-top:18px"><a class="btn" href="sekai://retry">\(retryLabel)</a></div>
+    """ : ""
     return """
     <meta charset="utf-8"><style>
-    body{margin:0;height:100vh;display:flex;align-items:center;justify-content:center;font:15px -apple-system,sans-serif;
-      background:#f2f4f6;color:#4e5968;padding:0 32px;text-align:center;line-height:1.6}
+    body{margin:0;height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;font:15px -apple-system,sans-serif;
+      background:#f2f4f6;color:#4e5968;padding:0 32px;text-align:center;line-height:1.6;white-space:pre-line}
+    .btn{display:inline-flex;align-items:center;justify-content:center;height:40px;padding:0 18px;border-radius:12px;
+      background:#3182f6;color:#fff;font-size:14px;font-weight:600;text-decoration:none;white-space:nowrap}
+    .btn:active{opacity:.85}
     @media (prefers-color-scheme:dark){body{background:#111113;color:#a5adb7}}
-    </style><body>\(escaped)</body>
+    </style><body><div>\(escaped)</div>\(button)</body>
     """
 }
 
@@ -68,20 +101,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         NSApp.mainMenu = makeMenu()
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1320, height: 860),
                           styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-        window.title = "셐 매크로"
+        window.title = appName()
         window.minSize = NSSize(width: 420, height: 560)
         window.contentView = webView
         window.center()
         window.setFrameAutosaveName("Panel")
         webView.navigationDelegate = self
         webView.uiDelegate = self
-        webView.loadHTMLString(page("셐 매크로를 여는 중…"), baseURL: nil)
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        connectOrStartPanel()
+    }
+
+    func connectOrStartPanel() {
+        webView.loadHTMLString(page(t("\(appName()) 여는 중…", "\(appName())を起動中…", "Opening \(appName())…"), retry: false), baseURL: nil)
         if !panelRunning() {
-            do { try startPanel() } catch { show("제어판을 시작하지 못했어요.\n\(error.localizedDescription)"); return }
+            if let old = panel, old.isRunning { old.terminate() }
+            panel = nil
+            do { try startPanel() } catch { show(t("제어판을 시작하지 못했어요.\n권한을 허용했다면 아래 버튼으로 다시 로드해 주세요.\n(\(error.localizedDescription))", "コントロールパネルを起動できませんでした。\n権限を許可したら下のボタンで再読み込みしてください。\n(\(error.localizedDescription))", "Could not start the control panel.\nIf you granted permission, click Reload below.\n(\(error.localizedDescription))")); return }
         }
         waitForPanel(until: Date().addingTimeInterval(60))
+    }
+
+    @objc func reloadOrRetry() {
+        if panelRunning(), webView.url?.host == "127.0.0.1" {
+            webView.reload()
+        } else {
+            connectOrStartPanel()
+        }
     }
 
     func startPanel() throws {
@@ -106,7 +153,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             DispatchQueue.main.async {
                 guard let self, !self.quitting else { return }
                 if ended.terminationStatus == 0 { self.quitting = true; NSApp.terminate(nil); return }
-                self.show("제어판이 꺼졌어요 (코드 \(ended.terminationStatus)).\n앱을 다시 열어 주세요. 기록: \(logURL.path)")
+                self.show(t("제어판이 꺼졌어요 (코드 \(ended.terminationStatus)).\n다시 로드하거나 앱을 다시 열어 주세요. 기록: \(logURL.path)", "コントロールパネルが終了しました（コード \(ended.terminationStatus)）。\n再読み込みするかアプリを開き直してください。記録: \(logURL.path)", "The control panel exited (code \(ended.terminationStatus)).\nReload or reopen the app. Log: \(logURL.path)"))
             }
         }
         try process.run()
@@ -122,12 +169,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
                 if (response as? HTTPURLResponse)?.statusCode == 200 { self.webView.load(URLRequest(url: panelURL)); return }
                 if self.panel?.isRunning == false { return }
                 if Date() < deadline { DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { self.waitForPanel(until: deadline) } }
-                else { self.show("제어판이 응답하지 않아요. 앱을 다시 열어 주세요.") }
+                else { self.show(t("제어판이 응답하지 않아요. 다시 로드하거나 앱을 다시 열어 주세요.", "コントロールパネルが応答しません。再読み込みするかアプリを開き直してください。", "The control panel is not responding. Reload or reopen the app.")) }
             }
         }.resume()
     }
 
-    func show(_ text: String) { webView.loadHTMLString(page(text), baseURL: nil) }
+    func show(_ text: String, retry: Bool = true) { webView.loadHTMLString(page(text, retry: retry), baseURL: nil) }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
     func applicationWillTerminate(_ notification: Notification) {
@@ -140,6 +187,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
 
     // Pages other than the panel (game and emulator sites) open in the default browser.
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        if action.request.url?.scheme == "sekai" {
+            decisionHandler(.cancel)
+            connectOrStartPanel()
+            return
+        }
         if action.shouldPerformDownload { decisionHandler(.download); return }
         if let url = action.request.url, ["http", "https"].contains(url.scheme ?? ""), url.host != "127.0.0.1" {
             NSWorkspace.shared.open(url)
@@ -183,26 +235,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             item.target = target
             return item
         }
-        submenu("셐 매크로", [
-            item("셐 매크로에 관하여", #selector(NSApplication.orderFrontStandardAboutPanel(_:)), ""),
+        let name = appName()
+        submenu(name, [
+            item(t("\(name)에 관하여", "\(name)について", "About \(name)"), #selector(NSApplication.orderFrontStandardAboutPanel(_:)), ""),
             .separator(),
-            item("셐 매크로 가리기", #selector(NSApplication.hide(_:)), "h"),
-            item("셐 매크로 종료", #selector(NSApplication.terminate(_:)), "q"),
+            item(t("\(name) 가리기", "\(name)を隠す", "Hide \(name)"), #selector(NSApplication.hide(_:)), "h"),
+            item(t("\(name) 종료", "\(name)を終了", "Quit \(name)"), #selector(NSApplication.terminate(_:)), "q"),
         ])
         // Without an Edit menu, Command-C and Command-V do not reach the page's text fields.
-        submenu("편집", [
-            item("실행 취소", Selector(("undo:")), "z"),
-            item("실행 복귀", Selector(("redo:")), "Z"),
+        submenu(t("편집", "編集", "Edit"), [
+            item(t("실행 취소", "取り消す", "Undo"), Selector(("undo:")), "z"),
+            item(t("실행 복귀", "やり直す", "Redo"), Selector(("redo:")), "Z"),
             .separator(),
-            item("오려두기", #selector(NSText.cut(_:)), "x"),
-            item("복사하기", #selector(NSText.copy(_:)), "c"),
-            item("붙여넣기", #selector(NSText.paste(_:)), "v"),
-            item("전체 선택", #selector(NSText.selectAll(_:)), "a"),
+            item(t("오려두기", "カット", "Cut"), #selector(NSText.cut(_:)), "x"),
+            item(t("복사하기", "コピー", "Copy"), #selector(NSText.copy(_:)), "c"),
+            item(t("붙여넣기", "ペースト", "Paste"), #selector(NSText.paste(_:)), "v"),
+            item(t("전체 선택", "すべて選択", "Select All"), #selector(NSText.selectAll(_:)), "a"),
         ])
-        submenu("보기", [item("새로 고침", #selector(WKWebView.reload(_:)), "r", target: webView)])
-        submenu("윈도우", [
-            item("최소화", #selector(NSWindow.performMiniaturize(_:)), "m"),
-            item("닫기", #selector(NSWindow.performClose(_:)), "w"),
+        submenu(t("보기", "表示", "View"), [item(t("새로 고침", "再読み込み", "Reload"), #selector(AppDelegate.reloadOrRetry), "r", target: self)])
+        submenu(t("윈도우", "ウインドウ", "Window"), [
+            item(t("최소화", "しまう", "Minimize"), #selector(NSWindow.performMiniaturize(_:)), "m"),
+            item(t("닫기", "閉じる", "Close"), #selector(NSWindow.performClose(_:)), "w"),
         ])
         return main
     }

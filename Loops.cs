@@ -61,19 +61,24 @@ internal static partial class Program
             if(LoopIndex>1)
             {
                 if(RepeatBlocker() is { } reason) { Console.WriteLine($"Repeat stopped before loop {LoopIndex}/{LoopTotal}: {reason}."); return; }
-                Console.WriteLine($"\n[{DateTimeOffset.Now:O}] Loop {LoopIndex}/{LoopTotal}");
+                var skipGacha=ReadSkipGacha();
+                SelectedStages=StagesWithSkipGacha(SelectedStages,skipGacha);
+                Console.WriteLine($"\n[{DateTimeOffset.Now:O}] Loop {LoopIndex}/{LoopTotal} (skipGacha={skipGacha})");
             }
+            StartTimingTurn(LoopIndex,LoopLimit(),"run");
             for(var fresh=0;;fresh++)
             {
                 StageIncomplete=false; SkipInvitation=false;
                 if(fresh>0)
                 {
                     Console.WriteLine($"Starting loop {LoopIndex} over with a new account ({fresh}/{FreshStarts}); invitation code and loops as they are.");
+                    BeginTimingRestart("fresh-start",ProgressStage);
                     await RebootInstance();
                 }
                 await Reset();
                 await Shell($"monkey -p {Package} -c android.intent.category.LAUNCHER 1");
-                if(await ExecuteStagesRecovering(fresh<FreshStarts)) break;
+                if(fresh>0) EndTimingRestart();
+                if(await ExecuteStagesRecovering(fresh<FreshStarts)) { FinishTimingTurn("complete"); break; }
             }
         }
         if(LoopTotal>1) Console.WriteLine($"All {LoopTotal} loops finished.");
@@ -84,7 +89,7 @@ internal static partial class Program
     // FreshStarts times; the invitation code, its uses and the loop count stay as they are. Onboarding starts over at
     // once: its account is new, and the tutorial screens already passed would only be waited for. Returns false when
     // the loop should start over.
-    const int FreshStarts=2;
+    const int FreshStarts=3;
     static async Task<bool> ExecuteStagesRecovering(bool mayStartOver)
     {
         string? resume=null;
@@ -93,14 +98,25 @@ internal static partial class Program
             try
             {
                 // Every stage after onboarding begins on the home screen.
-                if(resume!=null) { await RebootInstance(); await ReturnHome(); }
+                if(resume!=null)
+                {
+                    await RebootInstance();
+                    if(resume!="onboarding") await ReturnHome();
+                    EndTimingRestart();
+                }
                 await ExecuteStages(resume);
                 return true;
             }
             catch(Exception ex) when(!StopRequested && !File.Exists("artifacts/macro.stop") && ProgressStage is { } stage)
             {
                 Console.WriteLine($"Loop {LoopIndex} stopped in {stage}: {ex.Message}");
-                if(stage!=resume && stage!="onboarding") { Console.WriteLine($"Rebooting the instance and running {stage} again from its start."); resume=stage; continue; }
+                if(stage!=resume && (stage!="onboarding" || !mayStartOver))
+                {
+                    Console.WriteLine($"Rebooting the instance and running {stage} again from its start.");
+                    BeginTimingRestart("stage-retry",stage);
+                    resume=stage;
+                    continue;
+                }
                 if(!mayStartOver) throw;
                 return false;
             }
@@ -130,9 +146,9 @@ internal static partial class Program
             using(var screen=LoadCurrentScreen())
             {
                 if(IsAreaMain(screen)) { Console.WriteLine("Home screen reached after the reboot."); return; }
-                if(await DismissNotice(screen) || await DismissTutorialPanel(screen)) continue;
                 if(flow.FirstOrDefault(s=>s.Name is "title-start" or "login-bonus" or "campaign-bonus" or "beginner-bonus" && Matches(screen,s)) is { } step)
-                    await Shell($"input tap {step.X} {step.Y}");
+                { await Shell($"input tap {step.X} {step.Y}"); await Task.Delay(1500); continue; }
+                if(await DismissNotice(screen) || await DismissTutorialPanel(screen)) continue;
             }
             await Task.Delay(1500);
         }

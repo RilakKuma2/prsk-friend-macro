@@ -57,7 +57,11 @@ internal static partial class Program
                 if(StopRequested || File.Exists("artifacts/macro.stop")) throw new OperationCanceledException();
                 await Snapshot(quiet:true);
                 using var screen=LoadCurrentScreen();
-                if(!IsEventStoryList(screen)) throw new Exception("Story list lost while locating its bottom.");
+                if(!IsEventStoryList(screen))
+                {
+                    if(await DismissNotice(screen)) { await Task.Delay(500); i--; continue; }
+                    throw new Exception("Story list lost while locating its bottom.");
+                }
                 using var strip=screen.Clone(new Rectangle(500,85,390,380),screen.PixelFormat);
                 stable=previous!=null && DifferenceAt(screen,previous,500,85,390,380)<2?stable+1:0;
                 previous?.Dispose(); previous=(Bitmap)strip.Clone();
@@ -70,7 +74,11 @@ internal static partial class Program
                 if(StopRequested || File.Exists("artifacts/macro.stop")) throw new OperationCanceledException();
                 await Snapshot(quiet:true);
                 using var screen=LoadCurrentScreen();
-                if(!IsEventStoryList(screen)) throw new Exception("Story list lost while locating SKIP badge.");
+                if(!IsEventStoryList(screen))
+                {
+                    if(await DismissNotice(screen)) { await Task.Delay(500); page--; continue; }
+                    throw new Exception("Story list lost while locating SKIP badge.");
+                }
                 var y=FindBottomSkip(screen);
                 if(y>=0)
                 {
@@ -102,15 +110,15 @@ internal static partial class Program
             await Snapshot(quiet:true);
             using var screen=LoadCurrentScreen();
             bool Is(string name)=>Matches(screen,flow.Single(s=>s.Name==name));
+            if(IsStoryReader(screen)) { From="story-reading"; Console.WriteLine("Story is still open; continuing dialogue."); return; }
+            if(Is("story-no-voice")) { From="story-continuous-on"; return; }
+            if(IsEventStoryList(screen)) { From="event-story-first"; return; }
+            if(Is("event-story-open")) { await OpenEventStories(); From="event-story-first"; return; }
             if(IsStoryReceipt(screen))
             { From="story-reading"; Console.WriteLine("Continuous-story receipt found; finishing rewards before checking the story list."); return; }
             if(await DismissStoryReward(screen)) continue;
             if(await CloseRewardsDuringStories(screen)) continue;
             if(await DismissNotice(screen) || await DismissTutorialPanel(screen)) { await Task.Delay(700); continue; }
-            if(IsStoryReader(screen)) { From="story-reading"; Console.WriteLine("Story is still open; continuing dialogue."); return; }
-            if(Is("story-no-voice")) { From="story-continuous-on"; return; }
-            if(IsEventStoryList(screen)) { From="event-story-first"; return; }
-            if(Is("event-story-open")) { await OpenEventStories(); From="event-story-first"; return; }
             if(ReadInvitationState(screen)!=InvitationState.Unknown)
             {
                 var link=new Step("invite-event-link","templates/invite-event-link.png",815,258,781,248,70,20,"tap");

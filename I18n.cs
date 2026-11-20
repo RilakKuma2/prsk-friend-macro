@@ -23,7 +23,7 @@ internal static partial class Program
         language=value;
     }
 
-    static string AppTitle=>T("셐 매크로","セカマクロ","Sekai Macro");
+    static string AppTitle=>T("셐친구초대매크로","セカフレンド招待マクロ","SekaiFriendsMacro");
     static string T(string ko,string ja,string en)=>Language switch { "ja"=>ja,"en"=>en,_=>ko };
 
     static readonly Dictionary<string,(string Ja,string En)> StageTitles=new()

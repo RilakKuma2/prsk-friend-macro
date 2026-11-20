@@ -53,6 +53,7 @@ internal static partial class Program
                 if(!IsEventStoryList(screen))
                 {
                     if(await CloseRewardsBeforeVerification(screen,"event-stories-complete")) { await OpenEventStories(); continue; }
+                    if(await DismissNotice(screen)) { await Task.Delay(500); attempt--; continue; }
                     throw new Exception("Story list lost while locating its upper edge.");
                 }
                 stable=previous!=null && DifferenceAt(screen,previous,500,85,390,415)<1?stable+1:0;
@@ -70,6 +71,7 @@ internal static partial class Program
                 if(!IsEventStoryList(screen))
                 {
                     if(await CloseRewardsBeforeVerification(screen,"event-stories-complete")) { await OpenEventStories(); continue; }
+                    if(await DismissNotice(screen)) { await Task.Delay(500); page--; continue; }
                     throw new Exception("Story list lost during full SKIP verification.");
                 }
                 var ids=await ReadVisibleEpisodes(screen);
@@ -168,9 +170,6 @@ internal static partial class Program
         {
             CheckPostStoryStop(); await Snapshot(quiet:true);
             using var screen=LoadCurrentScreen();
-            await CheckRewards(screen);
-            if(await DismissNotice(screen) || await DismissTutorialPanel(screen)) continue;
-            if(await EscapeUnexpectedStory(screen,"friend-open")) continue;
             var state=ReadInvitationState(screen);
             if(state!=InvitationState.Unknown)
             {
@@ -184,6 +183,7 @@ internal static partial class Program
                 await Task.Delay(500); continue;
             }
             previous=InvitationState.Unknown; stable=0;
+            await CheckRewards(screen);
             Step? action=null;
             if(IsAreaMain(screen)) action=flow.Single(s=>s.Name=="friend-open");
             else if(Matches(screen,flow.Single(s=>s.Name=="invite-mission-open"))) action=flow.Single(s=>s.Name=="invite-mission-open");
@@ -193,6 +193,7 @@ internal static partial class Program
                 Console.WriteLine("Post-story navigation: "+action.Name);
                 await Shell($"input tap {action.X} {action.Y}"); lastAction=action.Name; lastTap=DateTime.UtcNow;
             }
+            else if(action==null && (await DismissNotice(screen) || await DismissTutorialPanel(screen) || await EscapeUnexpectedStory(screen,"friend-open"))) continue;
             await Task.Delay(650);
         }
         if(HasCurrentFrame) SaveCurrentEvidence("artifacts/invitation-unverified.webp");

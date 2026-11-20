@@ -585,7 +585,7 @@ internal static partial class Program
             }
             if(request.Start)
             {
-                var plan=JsonSerializer.Deserialize<Plan>(File.ReadAllText(Path.Combine(Workspace,"plan.json")))!.Stages;
+                var plan=StagesWithSkipGacha(JsonSerializer.Deserialize<Plan>(File.ReadAllText(Path.Combine(Workspace,"plan.json")))!.Stages,ReadSkipGacha());
                 var targets=request.StartBase || copies.Count==0?instances.ToList():copies;
                 foreach(var n in targets)
                 {

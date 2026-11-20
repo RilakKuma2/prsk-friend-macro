@@ -23,6 +23,6 @@ staging=$dist/dmg
 mkdir -p "$staging"
 cp -R "$app" "$staging/"
 ln -s /Applications "$staging/Applications"
-hdiutil create -volname "셐 매크로" -srcfolder "$staging" -ov -format UDZO "$dist/SekaiMacro-mac-arm64.dmg" >/dev/null
+hdiutil create -volname "셐친구초대매크로" -srcfolder "$staging" -ov -format UDZO "$dist/SekaiMacro-mac-arm64.dmg" >/dev/null
 rm -rf "$staging"
 ls -l "$dist/SekaiMacro-mac-arm64.dmg"

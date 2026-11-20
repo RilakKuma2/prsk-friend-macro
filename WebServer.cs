@@ -105,7 +105,7 @@ internal static partial class Program
         api.MapPost("/vms/provision",(ProvisionRequest request)=>Ok(StartProvision(request)));
         api.MapPost("/vms/game-download",()=>Ok(OpenGameDownload()?T("게임 받기 창을 열었어요.","ゲーム取得ウィンドウを開きました。","Opened the game download window.")
 #if WINDOWS
-            :T("이 PC의 셐 매크로 창에서만 받을 수 있어요.","このPCのセカマクロのウィンドウでのみ取得できます。","Only the app window on this PC can download it.")));
+            :T("이 PC의 셐친구초대매크로 창에서만 받을 수 있어요.","このPCのセカフレンド招待マクロのウィンドウでのみ取得できます。","Only the SekaiFriendsMacro window on this PC can download it.")));
 #else
             // macOS has no app window: the page opens in the default browser and setup picks the file up from Downloads.
             :OpenGamePage()));
@@ -117,8 +117,10 @@ internal static partial class Program
             context.Connection.RemoteIpAddress is { } ip && IPAddress.IsLoopback(ip)?Ok(SetLdFolder(request.Path)):Results.Json(new { message=T("이 PC에서만 바꿀 수 있습니다.","このPCでのみ変更できます。","Only this PC can change this.") },statusCode:403));
         api.MapPost("/language",(LanguageRequest request)=>{ SetLanguage(request.Language); return Results.Json(new { Language }); });
         api.MapPost("/tab",(TabRequest request)=>{ SetTab(request.Emulator); return Results.Json(new { Tab=SavedTab }); });
-        api.MapGet("/instances",async()=>Results.Json(await GetStatuses()));
+        api.MapPost("/skip-gacha",(SkipGachaRequest request)=>{ SetSkipGacha(request.SkipGacha); return Results.Json(new { SkipGacha=ReadSkipGacha() }); });
+        api.MapGet("/instances",async(HttpContext context)=>{ context.Response.Headers["X-Skip-Gacha"]=ReadSkipGacha()?"1":"0"; return Results.Json(await GetStatuses()); });
         api.MapGet("/instances/{n:int}/log",(int n,int? lines)=>{ RequireInstance(n); return Results.Text(TailLog(n,Math.Clamp(lines??300,10,3000))); });
+        api.MapGet("/instances/{n:int}/timing",(int n)=>{ RequireInstance(n); var data=ReadTiming(ArtifactsDir(n)); return Results.Json(new { Now=DateTimeOffset.Now,data.Current,data.History }); });
         api.MapGet("/instances/{n:int}/frame",(int n,HttpContext context)=>{ RequireInstance(n); context.Response.Headers.CacheControl="no-store"; var bytes=LastFrame(n); return bytes==null?Results.NotFound():Results.Bytes(bytes,"image/png"); });
         api.MapGet("/instances/{n:int}/screen",async(int n,bool? save)=>Results.File(await CaptureScreen(n,save==true),"image/png"));
         api.MapPost("/instances/{n:int}/lock",(int n,LockRequest request)=>Ok(SetLock(n,request.Locked)));
@@ -163,6 +165,7 @@ internal static partial class Program
     record TapPoint(int X,int Y);
     record LanguageRequest(string? Language);
     record TabRequest(string? Emulator);
+    record SkipGachaRequest(bool SkipGacha);
     record LdPlayerRequest(string? Path);
     record LanRequest(bool Enabled,int? Port);
     record InviteRequest(string? Code,string? Mode,int? Limit);

@@ -55,6 +55,30 @@ internal static partial class Program
     static DateTime LastSingleTap=DateTime.MinValue;
     static readonly HashSet<string> RapidStorySteps=["movie-skip","story-menu","after-live-menu","unit-story-menu","opening-menu","event-intro-menu","story-reading"];
     static string[] SelectedStages=[];
+    static bool ResumeSkipGacha;
+    static readonly string[] GachaStages=["gacha","deck"];
+    static string SkipGachaFile=>Path.Combine(Workspace,"local","skip-gacha.txt");
+    static bool ReadSkipGacha()
+    {
+        try { return !File.Exists(SkipGachaFile) || !bool.TryParse(File.ReadAllText(SkipGachaFile).Trim(),out var skip) || skip; }
+        catch { return true; }
+    }
+    static void SetSkipGacha(bool skip)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(SkipGachaFile)!);
+        var pending=SkipGachaFile+".pending";
+        File.WriteAllText(pending,skip?"true":"false");
+        File.Move(pending,SkipGachaFile,true);
+    }
+    static string[] StagesWithSkipGacha(IEnumerable<string> stages,bool skipGacha)
+    {
+        var list=stages.Where(s=>!GachaStages.Contains(s)).ToList();
+        if(skipGacha) return list.ToArray();
+        var plan=JsonSerializer.Deserialize<Plan>(File.ReadAllText(Path.Combine(Workspace,"plan.json")))!.Stages;
+        var ordered=plan.Where(s=>list.Contains(s) || GachaStages.Contains(s)).ToList();
+        foreach(var s in list) if(!ordered.Contains(s)) ordered.Add(s);
+        return ordered.ToArray();
+    }
     static DateTime LastGuard=DateTime.MinValue;
     record Stage(string Name, string Start, string End, string? Title=null);
     record Plan(string[] Stages);
@@ -154,6 +178,9 @@ internal static partial class Program
                 ValidateFlow();
                 var option=Array.IndexOf(args,"--from");
                 From=ResolveResumePoint(option>=0?args.ElementAtOrDefault(option+1):"saved");
+                var currentLoop=ReadLoop(Path.Combine(Directory.GetCurrentDirectory(),"artifacts"));
+                ResumeSkipGacha=currentLoop!=null?!currentLoop.Stages.Any(s=>GachaStages.Contains(s)):ReadSkipGacha();
+                if(StepsForStage("gacha").Concat(StepsForStage("deck")).Any(s=>s.Name==From)) ResumeSkipGacha=false;
                 RefreshInviteCode();
             }
             if(args.FirstOrDefault() is "run" or "tutorial" or "stage")
@@ -162,7 +189,7 @@ internal static partial class Program
                 var stagesOption=Array.IndexOf(args,"--stages");
                 SelectedStages=args[0]=="stage" ? [args.ElementAtOrDefault(1)??throw new Exception("stage requires a stage name")]
                     : stagesOption>=0 ? (args.ElementAtOrDefault(stagesOption+1)??"").Split(',')
-                    : JsonSerializer.Deserialize<Plan>(File.ReadAllText("plan.json"))!.Stages;
+                    : StagesWithSkipGacha(JsonSerializer.Deserialize<Plan>(File.ReadAllText("plan.json"))!.Stages,ReadSkipGacha());
                 foreach(var stage in SelectedStages) if(!LoadStages().Any(s=>s.Name==stage)) throw new Exception("Unknown stage: "+stage);
                 if(SelectedStages.Distinct().Count()!=SelectedStages.Length) throw new Exception("Duplicate stages are not allowed.");
                 if(args[0]=="run" && SelectedStages.FirstOrDefault()!="onboarding") throw new Exception("A reset run must begin with onboarding.");
@@ -200,9 +227,11 @@ internal static partial class Program
             Directory.CreateDirectory("artifacts");
             if(args[0]=="prepare") { await PrepareInstance(); return 0; }
             if(args[0] is "run" or "tutorial" or "stage" or "resume" or "register-invite") await EnsureResolution(args[0] is "tutorial" or "stage" or "register-invite");
+            var timingCommand=args[0] is "run" or "tutorial" or "stage" or "resume";
             if(args[0]=="resume")
             {
                 File.Delete("artifacts/macro.stop");
+                StartTimingTurn(ReadLoop("artifacts")?.Index??1,ReadLoop("artifacts")?.Total??1,"resume",resumeExisting:true);
                 await EnsureRunning();
                 if(ResumeAuto) await RecoverAutoLive();
                 if(ResumeStory) await RecoverStory();
@@ -214,6 +243,7 @@ internal static partial class Program
                 }
                 await UntilRewards(()=>Tutorial());
                 if(ProgressStage!=null) await WriteProgress(ProgressStage,StageIncomplete?"story-incomplete":"complete");
+                FinishTimingTurn("complete");
                 await ContinueLoops();
                 return 0;
             }
@@ -244,18 +274,19 @@ internal static partial class Program
                 case "select-memories": await SelectMemories(); break;
                 case "stop-story": await Shell("touch /data/local/tmp/sekai-story.stop"); await File.WriteAllTextAsync("artifacts/story.stop", "stop"); break;
                 case "swipe": await Shell($"input swipe {int.Parse(args[1])} {int.Parse(args[2])} {int.Parse(args[3])} {int.Parse(args[4])} 500"); await Task.Delay(800); await Snapshot(); break;
-                case "tutorial": if(From!=null) await Tutorial(); else await ExecuteStages(); break;
-                case "stage": await ExecuteStages(); break;
+                case "tutorial": StartTimingTurn(1,1,"stages"); if(From!=null) await Tutorial(); else await ExecuteStagesRecovering(false); break;
+                case "stage": StartTimingTurn(1,1,"stages"); await ExecuteStagesRecovering(false); break;
                 case "register-invite": await RegisterAwaitingInvitation(); break;
                 case "close-rewards": await CloseRewardsNow(); break;
                 case "run": File.Delete("artifacts/macro.stop"); File.Delete("artifacts/story.stop"); await RunLoops(1); break;
                 default: throw new Exception("Commands: run --unit mmj | tutorial --unit mmj [--from step] | inspect | snap [file] | tap x y | launch | reset | restore");
             }
+            if(timingCommand) FinishTimingTurn("complete");
             return 0;
         }
         // A stop asked from the panel is not a failure: it is logged without the exception, so the card does not show one.
-        catch(OperationCanceledException ex) when(StopRequested || File.Exists("artifacts/macro.stop")) { Console.WriteLine(ex.Message.StartsWith("Stopped")?ex.Message:"Stopped: "+ex.Message); return 1; }
-        catch(Exception ex) { if(HasCurrentFrame) SaveCurrentEvidence("artifacts/error.webp"); Console.Error.WriteLine(ex.ToString()); return 1; }
+        catch(OperationCanceledException ex) when(StopRequested || File.Exists("artifacts/macro.stop")) { if(args.FirstOrDefault() is "run" or "tutorial" or "stage" or "resume") FinishTimingTurn("stopped"); Console.WriteLine(ex.Message.StartsWith("Stopped")?ex.Message:"Stopped: "+ex.Message); return 1; }
+        catch(Exception ex) { if(args.FirstOrDefault() is "run" or "tutorial" or "stage" or "resume") FinishTimingTurn("failed"); if(HasCurrentFrame) SaveCurrentEvidence("artifacts/error.webp"); Console.Error.WriteLine(ex.ToString()); return 1; }
         finally { if(FrameSender!=null) await FrameSender.DisposeAsync(); CurrentFrames.Clear(); }
     }
     static List<Step> StepsForStage(string name)
@@ -279,8 +310,10 @@ internal static partial class Program
             }
             Console.WriteLine("Stage: "+name);
             StageIncomplete=false;
+            BeginTimingStage(name);
             await WriteProgress(name,"running");
             var rewarded=await UntilRewards(()=>Tutorial(StepsForStage(name)));
+            EndTimingStage(name);
             await WriteProgress(name,StageIncomplete?"story-incomplete":"complete");
             if(StageIncomplete || rewarded) return;
         }
@@ -438,6 +471,17 @@ internal static partial class Program
                     SaveCurrentEvidence("artifacts/selected-memories.webp");
                     Console.WriteLine("Selected the topmost Memories banner with the ordinary 3000-crystal ten-draw button. No draw submitted."); return;
                 }
+                if(await DismissNotice(screen))
+                {
+                    await Shell($"input tap 60 {y}"); await Task.Delay(700);
+                    await Snapshot(quiet:true);
+                    using var retryScreen=LoadCurrentScreen();
+                    if(Difference(retryScreen,button,freeDraw)<12)
+                    {
+                        SaveCurrentEvidence("artifacts/selected-memories.webp");
+                        Console.WriteLine("Selected the topmost Memories banner with the ordinary 3000-crystal ten-draw button. No draw submitted."); return;
+                    }
+                }
             }
             await Shell("input swipe 65 435 65 100 500"); await Task.Delay(500);
         }
@@ -476,6 +520,7 @@ internal static partial class Program
         Console.WriteLine("After: " + after);
         if(before!=after) throw new Exception("Restored folder size differs; inspect before launching.");
         foreach(var name in new[]{"memories-confirm-once","guaranteed-confirm-once"}) File.Delete($"artifacts/{name}.sent");
+        foreach(var name in new[]{"memories-result-ok","guaranteed-result-ok"}) File.Delete($"artifacts/{name}.done");
         EvidenceArchive.Value.ResetBasicDataVerification("artifacts");
         await WriteLoop();
         if(StopRequested) throw new OperationCanceledException("Stopped after restoring external data.");
@@ -554,12 +599,17 @@ internal static partial class Program
         if(Until!=null) selectedSteps=selectedSteps.Take(selectedSteps.FindIndex(s=>s.Name==Until)+1).ToList();
         var invitationSteps=StepsForStage("invitation").Select(s=>s.Name).ToHashSet();
         var invitationStart=LoadStages().Single(s=>s.Name=="invitation").Start;
+        var skipGachaSteps=stageSteps==null && ResumeSkipGacha?StepsForStage("gacha").Concat(StepsForStage("deck")).Select(s=>s.Name).ToHashSet():null;
+        var gachaStart=LoadStages().Single(s=>s.Name=="gacha").Start;
         for(var stepIndex=0;stepIndex<selectedSteps.Count;stepIndex++)
         {
             var step=selectedSteps[stepIndex];
-            if(step.Name is "memories-ten" or "memories-confirm-once" or "memories-result-ok" && File.Exists("artifacts/memories-confirm-once.sent"))
+            if(skipGachaSteps!=null && skipGachaSteps.Contains(step.Name)) { if(step.Name==gachaStart) Console.WriteLine("Gacha and deck stages skipped for this turn."); continue; }
+            if((step.Name is "memories-ten" or "memories-confirm-once" && File.Exists("artifacts/memories-confirm-once.sent")) ||
+               (step.Name=="memories-result-ok" && File.Exists("artifacts/memories-result-ok.done")))
             { if(step.Name=="memories-ten") Console.WriteLine("Memories gacha already completed in this reset session; skipping."); await SaveCheckpoint(step.Name,"executed"); continue; }
-            if(step.Name is "guaranteed-one" or "guaranteed-confirm-once" or "guaranteed-result-ok" && File.Exists("artifacts/guaranteed-confirm-once.sent"))
+            if((step.Name is "guaranteed-one" or "guaranteed-confirm-once" && File.Exists("artifacts/guaranteed-confirm-once.sent")) ||
+               (step.Name=="guaranteed-result-ok" && File.Exists("artifacts/guaranteed-result-ok.done")))
             { if(step.Name=="guaranteed-one") Console.WriteLine("Guaranteed gacha already completed in this reset session; skipping."); await SaveCheckpoint(step.Name,"executed"); continue; }
             var onboardingStep=StepsForStage("onboarding").Any(s=>s.Name==step.Name);
             var eventStoryStep=StepsForStage("eventstory").Any(s=>s.Name==step.Name);
@@ -570,7 +620,8 @@ internal static partial class Program
                 if(SkipInvitation) { if(step.Name==invitationStart) Console.WriteLine("No invitation code: invitation stage skipped."); continue; }
             }
             // A resumed run goes on through the later stages: keep progress.json, whose stage the panel shows, current.
-            if(stageSteps==null && StageOf(step.Name) is { } stepStage && stepStage!=ProgressStage) await WriteProgress(stepStage,"running");
+            if(stageSteps==null && StageOf(step.Name) is { } stepStage && stepStage!=ProgressStage)
+            { BeginTimingStage(stepStage); await WriteProgress(stepStage,"running"); }
             await SaveCheckpoint(step.Name,"waiting");
             if(HomeGuidesCompleted && (step.Name.StartsWith("home-guide-") || step.Name is "login-bonus" or "campaign-bonus" or "beginner-bonus" or "gift-open"))
             { await SaveCheckpoint(step.Name,"executed"); continue; }
@@ -633,6 +684,24 @@ internal static partial class Program
                 using(var screen=LoadCurrentScreen())
                 {
                     if(screen.Width!=960 || screen.Height!=540) throw new Exception("Flow requires 960x540. No tap sent.");
+                    difference=Difference(screen,expected,step);
+                    var threshold=step.Name.StartsWith("live-help-")?5:12;
+                    // Fast path: when the expected screen is already matched, skip secondary notice/survey/recovery checks.
+                    if(difference<threshold)
+                    {
+                        if(step.Name=="story-no-voice" && !StoryContinuousChecked(screen))
+                        {
+                            Console.WriteLine("Continuous reading is unchecked; enabling and verifying before starting.");
+                            await Shell("input tap 372 355"); await Task.Delay(500); continue;
+                        }
+                        if(step.Name=="invite-register")
+                        {
+                            var invalid=JsonSerializer.Deserialize<Step>(File.ReadAllText("handlers.json"))!;
+                            if(Matches(screen,invalid)) { await RecordInvite("rejected",true); await Shell("input tap 480 420"); throw new Exception("Invitation rejected by the server. Field was verified; correct --code before resuming invite-code-focus."); }
+                        }
+                    }
+                    else
+                    {
                     if(eventStoryStep && await DismissStoryReceipt(screen)) continue;
                     if(eventStoryStep && await DismissStoryReward(screen))
                     {
@@ -648,13 +717,45 @@ internal static partial class Program
                     if(Matches(screen,new Step("app-update","templates/app-update.png",480,318,410,304,140,30,"checkpoint")))
                         throw new Exception("The game must be updated (新しいアプリがあります). Update it in VM management (game update) and start again.");
                     if(await RecoverStalledTitle(screen)) { lastActivityCheck=DateTime.MinValue; previous=null; continue; }
-                    // The game can freeze on its loading screen (a blank background) before the title, which otherwise shows
-                    // within about two minutes of launch; a launch still short of it after three reboots the instance.
-                    if(step.Name is "google-back" or "title-start" && startupRestarts<2 && DateTime.UtcNow-waitStarted>TimeSpan.FromMinutes(3))
+                    // Universal stall auto-restart across all steps/stages (except while downloading game data):
+                    // 1st stall (75s): restart game app and recover step/stage.
+                    // 2nd stall (75s): reboot emulator instance and recover step/stage.
+                    // 3rd stall (75s): throw timeout so ExecuteStagesRecovering restarts the stage or resets the loop.
+                    if(!IsDataDownloadProgress(screen) && DateTime.UtcNow-waitStarted>TimeSpan.FromSeconds(75))
                     {
-                        SaveCurrentEvidence($"artifacts/startup-stall-{++startupRestarts}.webp");
-                        Console.WriteLine($"Title not shown 3 minutes after launch ({startupRestarts}/2).");
-                        await RebootInstance();
+                        if(startupRestarts>=2)
+                            throw new TimeoutException($"Step {step.Name} remained stalled after game restart and instance reboot.");
+                        SaveCurrentEvidence($"artifacts/stall-restart-{++startupRestarts}.webp");
+                        var restartStage=ProgressStage??StageOf(step.Name);
+                        BeginTimingRestart(startupRestarts==1?"game":"vm",restartStage);
+                        if(startupRestarts==1)
+                        {
+                            Console.WriteLine($"Step {step.Name} stalled for 75s; restarting game ({startupRestarts}/2).");
+                            await Shell($"am force-stop {Package}");
+                            await Shell($"monkey -p {Package} -c android.intent.category.LAUNCHER 1");
+                            await Task.Delay(2500);
+                        }
+                        else
+                        {
+                            Console.WriteLine($"Step {step.Name} still stalled after game restart; rebooting instance ({startupRestarts}/2).");
+                            await RebootInstance();
+                        }
+                        if(stageSteps!=null && !onboardingStep)
+                        {
+                            await ReturnHome();
+                            EndTimingRestart();
+                            Console.WriteLine($"Restarting current stage from {selectedSteps[0].Name} after stall recovery.");
+                            stepIndex=-1; previous=null; recovered=true; break;
+                        }
+                        var landed=await AdvanceAfterRestart(step.Name,selectedSteps);
+                        var targetIdx=landed==null?-1:selectedSteps.FindIndex(s=>s.Name==landed);
+                        if(targetIdx>=0)
+                        {
+                            EndTimingRestart(StageOf(landed!));
+                            Console.WriteLine($"Recovered after stall restart: {step.Name} -> {landed}.");
+                            stepIndex=targetIdx-1; previous=null; recovered=true; break;
+                        }
+                        EndTimingRestart(restartStage);
                         waitStarted=DateTime.UtcNow; deadline=waitStarted.AddMinutes(10); lastActivityCheck=DateTime.MinValue; previous=null;
                         continue;
                     }
@@ -715,8 +816,7 @@ internal static partial class Program
                         var unlock=steps.Single(s=>s.Name=="result-story-unlocks");
                         if(Matches(screen,unlock)) { await DismissRepeated(unlock); continue; }
                     }
-                    difference=Difference(screen,expected,step);
-                    if(afterStory!=null && difference>=12 && Matches(screen,afterStory))
+                    if(afterStory!=null && Matches(screen,afterStory))
                     {
                         Console.WriteLine($"The story ended before its menu was seen; continuing with {afterStory.Name}.");
                         stepIndex=selectedSteps.IndexOf(afterStory)-1; previous=null; recovered=true; break;
@@ -732,29 +832,37 @@ internal static partial class Program
                         Console.WriteLine("Song shop is showing one unit's tab; selecting すべて.");
                         await Shell("input tap 123 84"); lastRetry=DateTime.UtcNow; await Task.Delay(700); continue;
                     }
-                    if(step.Name=="memories-confirm-once" && difference>=12 && await IsInsufficientCrystalsDialog(screen))
+                    if(step.Name=="memories-confirm-once" && await IsInsufficientCrystalsDialog(screen))
                     {
                         SaveCurrentEvidence("artifacts/memories-insufficient-crystals.webp");
                         Console.WriteLine("Insufficient crystals for Memories gacha; dismissing dialog and treating Memories draw as completed.");
                         if(!File.Exists("artifacts/memories-confirm-once.sent")) await File.WriteAllTextAsync("artifacts/memories-confirm-once.sent",DateTimeOffset.Now.ToString("O"));
+                        if(!File.Exists("artifacts/memories-result-ok.done")) await File.WriteAllTextAsync("artifacts/memories-result-ok.done",DateTimeOffset.Now.ToString("O"));
                         await Shell("input tap 393 406"); await Task.Delay(1200);
                         var scrollIdx=selectedSteps.FindIndex(s=>s.Name=="gacha-scroll-down");
                         if(scrollIdx>stepIndex) { stepIndex=scrollIdx-1; previous=null; recovered=true; break; }
                         skipOptional=true; break;
                     }
-                    if(step.Name is "members-open" or "area-open" && difference>=12)
+                    if(step.Name is "gacha-scroll-down" or "gacha-back-home" && DateTime.UtcNow-lastRetry>TimeSpan.FromSeconds(4))
+                    {
+                        var resultStep=steps.Single(s=>s.Name==(step.Name=="gacha-scroll-down"?"memories-result-ok":"guaranteed-result-ok"));
+                        if(Matches(screen,resultStep))
+                        {
+                            Console.WriteLine("Gacha result OK still visible; tapping OK again to close result screen.");
+                            await Shell($"input tap {resultStep.X} {resultStep.Y}"); lastRetry=DateTime.UtcNow; await Task.Delay(800); continue;
+                        }
+                    }
+                    if(step.Name is "members-open" or "area-open")
                     {
                         if(await IsInsufficientCrystalsDialog(screen)) { Console.WriteLine("Dismissing insufficient-crystals dialog before returning home."); await Shell("input tap 393 406"); await Task.Delay(800); continue; }
                         if(DateTime.UtcNow-lastRetry>TimeSpan.FromSeconds(4) && (Matches(screen,steps.Single(s=>s.Name=="memories-tab")) || Matches(screen,steps.Single(s=>s.Name=="gacha-back-home"))))
                         { Console.WriteLine("Leaving gacha/subscreen to return home."); await Shell("input tap 32 32"); lastRetry=DateTime.UtcNow; await Task.Delay(800); continue; }
                     }
-                    // Gacha/subscreen escape handled above.
-                    // (previously members-open back-tap)
                     if(step.Name is "base-data-only" or "base-data-download")
                         if(BasicDataVerified || IsAreaMain(screen)) skipOptional=true;
                     if(step.Name=="song-default" && IsAreaMain(screen)) skipOptional=true;
                     // A daily reward may interrupt any stage when the server date changes.
-                    if(difference>=12 && step.Name is not ("campaign-bonus" or "event-intro-reward") && Matches(screen,steps.Single(s=>s.Name=="campaign-bonus")))
+                    if(step.Name is not ("campaign-bonus" or "event-intro-reward") && Matches(screen,steps.Single(s=>s.Name=="campaign-bonus")))
                     { await Shell("input tap 480 420"); await Task.Delay(800); continue; }
                     if(step.Name=="gacha-download" && Matches(screen,steps.Single(s=>s.Name=="memories-tab"))) skipOptional=true;
                     if(step.Name=="boost-plus-ten" && Matches(screen,steps.Single(s=>s.Name=="boost-confirm-ten"))) skipOptional=true;
@@ -774,28 +882,25 @@ internal static partial class Program
                     if(step.Name.StartsWith("event-intro-") || step.Name=="event-data-download")
                         if(Matches(screen,steps.Single(s=>s.Name=="event-story-open"))) skipOptional=true;
                     if(step.Name=="story-continuous-on" && StoryContinuousChecked(screen)) skipOptional=true;
-                    if(step.Name=="story-no-voice" && difference<12 && !StoryContinuousChecked(screen))
-                    {
-                        Console.WriteLine("Continuous reading is unchecked; enabling and verifying before starting.");
-                        await Shell("input tap 372 355"); await Task.Delay(500); continue;
-                    }
-                    if(step.Name=="invite-register")
-                    {
-                        var invalid=JsonSerializer.Deserialize<Step>(File.ReadAllText("handlers.json"))!;
-                        if(Matches(screen,invalid)) { await RecordInvite("rejected",true); await Shell("input tap 480 420"); throw new Exception("Invitation rejected by the server. Field was verified; correct --code before resuming invite-code-focus."); }
-                    }
                     if(step.Name=="google-back" && Matches(screen,steps.Single(s=>s.Name=="title-start"))) skipOptional=true;
                     // Campaigns change over time. Advance only when a later known reward screen is visible.
-                    if(difference>=12 && step.Name is ("login-bonus" or "campaign-bonus" or "beginner-bonus"))
+                    if(step.Name is ("login-bonus" or "campaign-bonus" or "beginner-bonus"))
                     {
                         foreach(var next in steps.SkipWhile(s=>s.Name!=step.Name).Skip(1).TakeWhile(s=>s.Name!="gift-open"))
                             if(Matches(screen,next)) { skipOptional=true; break; }
                         if(IsAreaMain(screen)) skipOptional=true;
                     }
-                    // Menu icons can appear briefly during scene transitions before accepting input.
-                    var safeRetry=previous!=null && (previous.Name.EndsWith("-menu") || previous.Name.EndsWith("back-home") || previous.Name is "title-start" or "memories-result-ok" or "guaranteed-result-ok" or "gift-receipt-ok" or "deck-back-members" or "shop-back");
-                    if(difference>=12 && safeRetry && DateTime.UtcNow-lastRetry>TimeSpan.FromSeconds(4) && Matches(screen,previous!))
-                    { await Shell($"input tap {previous!.X} {previous.Y}"); lastRetry=DateTime.UtcNow; }
+                    // If a previous tap was ignored during a scene transition (including unit selection, dialogs, menus, etc.),
+                    // re-tap it after 4s as long as the screen still matches that previous step and it is not a one-time purchase/submit step.
+                    var safeRetry=previous!=null && previous.Action=="tap" &&
+                        previous.Name is not ("song-purchase-once" or "boost-confirm-ten" or "invite-register" or "memories-ten" or "guaranteed-one");
+                    if(safeRetry && DateTime.UtcNow-lastRetry>TimeSpan.FromSeconds(4) && Matches(screen,previous!))
+                    {
+                        var (rx,ry)=TapCoords(previous!);
+                        Console.WriteLine($"Previous step {previous!.Name} still on screen; re-tapping ({rx}, {ry}).");
+                        await Shell($"input tap {rx} {ry}"); lastRetry=DateTime.UtcNow;
+                    }
+                    }
                 }
                 if(skipOptional) break;
                 if(step.Name=="event-story-first" && difference>=12 && DateTime.UtcNow-lastRetry>TimeSpan.FromSeconds(2))
@@ -849,7 +954,7 @@ internal static partial class Program
             }
             if(step.Name is "unit-select" or "unit-color" or "unit-scenery")
             {
-                var (x,y)=Unit switch { "leo"=>(830,310), "mmj"=>(90,96), "vbs"=>(120,310), "wxs"=>(607,460), "n25"=>(870,95), _=>throw new Exception("Invalid unit") };
+                var (x,y)=TapCoords(step);
                 await Shell($"input tap {x} {y}");
             }
             else if(step.Name=="event-story-first")
@@ -886,11 +991,16 @@ internal static partial class Program
                 await Shell($"input tap {step.X} {step.Y}");
                 await SkipGacha();
             }
+            if(step.Name is "memories-result-ok" or "guaranteed-result-ok")
+                await File.WriteAllTextAsync($"artifacts/{step.Name}.done",DateTimeOffset.Now.ToString("O"));
             previous=step;
             await SaveCheckpoint(step.Name,"executed");
             await Task.Delay(1800);
         }
     }
+    static (int X,int Y) TapCoords(Step s)=>s.Name is "unit-select" or "unit-color" or "unit-scenery"
+        ?Unit switch { "leo"=>(830,310), "mmj"=>(90,96), "vbs"=>(120,310), "wxs"=>(607,460), "n25"=>(870,95), _=>throw new Exception("Invalid unit") }
+        :(s.X,s.Y);
     static bool Matches(Bitmap screen,Step step)
     {
         using var expected=new Bitmap(step.Image);
@@ -907,11 +1017,11 @@ internal static partial class Program
             if(StopRequested) throw new OperationCanceledException();
             await Guard(); await Snapshot(quiet:true);
             using var screen=LoadCurrentScreen();
-            if(await DismissNotice(screen)) continue;
             if(IsAutoEnd(screen)) { Console.WriteLine("Auto completion detected from Miku face fragment."); await SaveCheckpoint("auto-live-started","executed"); return; }
             if(Matches(screen,unlock)) return;
             stable=Matches(screen,result)?stable+1:0;
             if(stable>=2) return;
+            if(stable==0 && await DismissNotice(screen)) continue;
             Console.WriteLine("Auto live: checked at "+DateTime.Now.ToString("HH:mm:ss"));
         }
         throw new Exception("Auto live did not finish within two hours.");
@@ -948,12 +1058,6 @@ internal static partial class Program
             var bytes=await RunBytes(Adb,"-s",Serial,"exec-out","screencap","-p");
             using var stream=new MemoryStream(bytes); using var screen=new Bitmap(stream);
             PublishCurrentFrame(bytes);
-            if(await DismissStoryReceipt(screen)) { lastKnown=DateTime.UtcNow; listFrames=0; continue; }
-            if(await DismissNotice(screen)) { lastKnown=DateTime.UtcNow; continue; }
-            // With the code entered beforehand, this dialog opens once the stories are read: capture and close it,
-            // then the next step verifies all 20 episodes and counts the loop as done.
-            if(await CloseRewardsBeforeVerification(screen,"event-stories-complete")) { Console.WriteLine($"Story reading ended with the invitation rewards after approximately {taps} dialogue taps."); return; }
-            if(await CloseRewardsDuringStories(screen)) { lastKnown=DateTime.UtcNow; listFrames=0; continue; }
             if(IsStoryReader(screen) || IsDarkStoryTransition(screen))
             {
                 if(taps==0) Console.WriteLine("Story playback confirmed; continuous dialogue taps with 120-second screen checks.");
@@ -962,12 +1066,18 @@ internal static partial class Program
                 // The user explicitly requested two-minute screen checks during this phase.
                 await ContinuousStoryTaps(); taps+=960; lastKnown=DateTime.UtcNow;
             }
+            else if(await DismissStoryReceipt(screen)) { lastKnown=DateTime.UtcNow; listFrames=0; }
+            // With the code entered beforehand, this dialog opens once the stories are read: capture and close it,
+            // then the next step verifies all 20 episodes and counts the loop as done.
+            else if(await CloseRewardsBeforeVerification(screen,"event-stories-complete")) { Console.WriteLine($"Story reading ended with the invitation rewards after approximately {taps} dialogue taps."); return; }
+            else if(await CloseRewardsDuringStories(screen)) { lastKnown=DateTime.UtcNow; listFrames=0; }
             else if(Matches(screen,reward))
             { lastKnown=DateTime.UtcNow; listFrames=0; await Shell("input tap 480 420"); }
             else if(IsEventStoryList(screen))
             {
                 if(++listFrames>=3) { Console.WriteLine($"Story list reached after approximately {taps} dialogue taps."); return; }
             }
+            else if(await DismissNotice(screen) || await DismissTutorialPanel(screen)) { lastKnown=DateTime.UtcNow; }
             else
             {
                 listFrames=0;
@@ -1038,6 +1148,7 @@ internal static partial class Program
                 if(IsStoryChoice(screen)) { Console.WriteLine("Story choice shown; picking the first one."); await Shell($"input tap {StoryChoiceX} 270"); continue; }
                 if(Matches(screen,menu) || IsMovieConfirm(screen) || IsDataDownloadProgress(screen) || IsBaseDataDialog(screen) || IsNameDialog(screen) || afterStory!=null && Matches(screen,afterStory))
                 { await Shell("touch /data/local/tmp/sekai-story.stop"); break; }
+                if(!IsStoryReader(screen) && !IsDarkStoryTransition(screen) && await DismissNotice(screen)) continue;
             }
         }
         finally { await Shell("touch /data/local/tmp/sekai-story.stop"); await tapping; }
@@ -1151,9 +1262,9 @@ internal static partial class Program
             if(StopRequested) throw new OperationCanceledException();
             await Snapshot(quiet:true);
             using var screen=LoadCurrentScreen();
-            if(await EscapeUnexpectedStory(screen,"music-shop-open")) continue;
             var best=FindMusicShop(screen,step);
             if(best.Error<12) { await Shell($"input tap {best.X+best.Width/2} {best.Y+best.Height/2}"); return; }
+            if(await DismissNotice(screen) || await DismissTutorialPanel(screen) || await EscapeUnexpectedStory(screen,"music-shop-open")) continue;
             await Shell("input swipe 800 300 170 300 400"); await Task.Delay(500);
         }
         throw new Exception("Music shop sign not found after moving to the right edge.");
@@ -1173,6 +1284,7 @@ internal static partial class Program
             for(var y=60;y<430;y+=3) for(var x=440;x<945;x+=3)
             { var p=screen.GetPixel(x,y); if(p.R>190 && p.G<155 && p.B>100 && p.R>p.G*1.4) pink++; if(p.R<170 && p.G<180 && p.B<210) dim++; }
             if(pink>80 && dim>3000) { absent=0; await Shell("input tap 160 420"); }
+            else if(await DismissNotice(screen)) { absent=0; }
             else if(++absent>=3) return;
             await Task.Delay(400);
         }
@@ -1217,26 +1329,28 @@ internal static partial class Program
             if(StopRequested || File.Exists("artifacts/macro.stop")) throw new OperationCanceledException();
             await Snapshot(quiet:true);
             using var screen=LoadCurrentScreen();
-            if(await DismissStoryReceipt(screen)) { listFrames=buttonFrames=0; continue; }
-            if(await CloseRewardsBeforeVerification(screen,"event-stories-complete")) { listFrames=buttonFrames=0; continue; }
-            if(await DismissStoryReward(screen)) { listFrames=buttonFrames=0; continue; }
-            if(await DismissNotice(screen) || await DismissTutorialPanel(screen))
-            { listFrames=buttonFrames=0; await Task.Delay(500); continue; }
             if(IsEventStoryList(screen))
             {
                 buttonFrames=0;
                 if(++listFrames>=2) { Console.WriteLine("Event story list entry confirmed."); return; }
             }
-            else
+            else if(Matches(screen,button))
             {
                 listFrames=0;
-                buttonFrames=Matches(screen,button)?buttonFrames+1:0;
-                if(buttonFrames>=2 && DateTime.UtcNow-lastTap>TimeSpan.FromSeconds(2))
+                if(++buttonFrames>=2 && DateTime.UtcNow-lastTap>TimeSpan.FromSeconds(2))
                 {
                     Console.WriteLine("Event story button recognized; opening list.");
                     await Shell($"input tap {button.X} {button.Y}");
                     lastTap=DateTime.UtcNow; buttonFrames=0;
                 }
+            }
+            else
+            {
+                listFrames=0; buttonFrames=0;
+                if(await DismissStoryReceipt(screen)) continue;
+                if(await CloseRewardsBeforeVerification(screen,"event-stories-complete")) continue;
+                if(await DismissStoryReward(screen)) continue;
+                if(await DismissNotice(screen) || await DismissTutorialPanel(screen)) { await Task.Delay(500); continue; }
             }
             await Task.Delay(500);
         }
@@ -1253,6 +1367,7 @@ internal static partial class Program
             if(after?.Name=="event-story-open" && await DismissStoryReward(screen)) continue;
             if(await DismissTutorialPanel(screen)) { seen=true; absent=0; }
             else if(after!=null && Matches(screen,after)) return;
+            else if(await DismissNotice(screen)) { absent=0; }
             else if(seen && ++absent>=3) return;
             await Task.Delay(500);
         }
@@ -1274,6 +1389,7 @@ internal static partial class Program
                 // Neutral point: never overlaps Result OK/Event/Song buttons.
                 await Shell("input tap 480 400"); taps++;
             }
+            else if(await DismissNotice(screen)) { absent=0; }
             else if(++absent>=8) { Console.WriteLine($"Unlock notices dismissed ({taps} taps)."); return; }
             if(StopRequested) return;
             await Task.Delay(300);
