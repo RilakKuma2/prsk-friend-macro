@@ -167,7 +167,7 @@ internal static partial class Program
         return new
         {
             Instances=AllowedInstances.Select(p=>new { Instance=p.Key,Name=p.Value }),
-            Stages=LoadStagesCached().Select(s=>new { s.Name,Title=StageTitle(s),s.Start,s.End }),
+            Stages=LoadStagesCached().Where(s=>s.Name is not ("gacha" or "deck")).Select(s=>new { s.Name,Title=StageTitle(s),s.Start,s.End }),
             Version=CurrentVersion.ToString(),Language,LdPlayer=EmulatorFolder,Emulator=IsBlueStacks?"bluestacks":"ldplayer",
             // One tab per installed emulator; instance numbers from Base to Base+999 belong to it.
             Emulators=Emulators.Select(e=>new { e.Key,e.Base,Label=EmulatorLabel(e.Key),Installed=FolderOf(e.Key)!=null,

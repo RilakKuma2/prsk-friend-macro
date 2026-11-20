@@ -271,6 +271,7 @@ internal static partial class Program
     {
         foreach(var name in from==null?SelectedStages:SelectedStages.SkipWhile(s=>s!=from))
         {
+            if(name is "gacha" or "deck") { Console.WriteLine($"Skipped {name} stage: gacha skip is forced in this version."); continue; }
             if(name=="invitation" && !RefreshInviteCode())
             {
                 Console.WriteLine("Skipped invitation stage: no code supplied.");
@@ -553,9 +554,12 @@ internal static partial class Program
         if(Until!=null) selectedSteps=selectedSteps.Take(selectedSteps.FindIndex(s=>s.Name==Until)+1).ToList();
         var invitationSteps=StepsForStage("invitation").Select(s=>s.Name).ToHashSet();
         var invitationStart=LoadStages().Single(s=>s.Name=="invitation").Start;
+        var forcedSkipSteps=StepsForStage("gacha").Concat(StepsForStage("deck")).Select(s=>s.Name).ToHashSet();
+        var gachaStart=LoadStages().Single(s=>s.Name=="gacha").Start;
         for(var stepIndex=0;stepIndex<selectedSteps.Count;stepIndex++)
         {
             var step=selectedSteps[stepIndex];
+            if(forcedSkipSteps.Contains(step.Name)) { if(step.Name==gachaStart) Console.WriteLine("Gacha and deck stages skipped (gacha skip forced)."); continue; }
             var onboardingStep=StepsForStage("onboarding").Any(s=>s.Name==step.Name);
             var eventStoryStep=StepsForStage("eventstory").Any(s=>s.Name==step.Name);
             if(invitationSteps.Contains(step.Name))
