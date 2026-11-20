@@ -53,7 +53,7 @@ internal static partial class Program
     static string? ActiveStep;
     static bool StageIncomplete;
     static DateTime LastSingleTap=DateTime.MinValue;
-    static readonly HashSet<string> RapidStorySteps=["story-menu","after-live-menu","unit-story-menu","opening-menu","event-intro-menu","story-reading"];
+    static readonly HashSet<string> RapidStorySteps=["movie-skip","story-menu","after-live-menu","unit-story-menu","opening-menu","event-intro-menu","story-reading"];
     static string[] SelectedStages=[];
     static DateTime LastGuard=DateTime.MinValue;
     record Stage(string Name, string Start, string End, string? Title=null);
@@ -560,6 +560,10 @@ internal static partial class Program
         {
             var step=selectedSteps[stepIndex];
             if(forcedSkipSteps.Contains(step.Name)) { if(step.Name==gachaStart) Console.WriteLine("Gacha and deck stages skipped (gacha skip forced)."); continue; }
+            if(step.Name is "memories-ten" or "memories-confirm-once" or "memories-result-ok" && File.Exists("artifacts/memories-confirm-once.sent"))
+            { if(step.Name=="memories-ten") Console.WriteLine("Memories gacha already completed in this reset session; skipping."); await SaveCheckpoint(step.Name,"executed"); continue; }
+            if(step.Name is "guaranteed-one" or "guaranteed-confirm-once" or "guaranteed-result-ok" && File.Exists("artifacts/guaranteed-confirm-once.sent"))
+            { if(step.Name=="guaranteed-one") Console.WriteLine("Guaranteed gacha already completed in this reset session; skipping."); await SaveCheckpoint(step.Name,"executed"); continue; }
             var onboardingStep=StepsForStage("onboarding").Any(s=>s.Name==step.Name);
             var eventStoryStep=StepsForStage("eventstory").Any(s=>s.Name==step.Name);
             if(invitationSteps.Contains(step.Name))
@@ -731,8 +735,24 @@ internal static partial class Program
                         Console.WriteLine("Song shop is showing one unit's tab; selecting すべて.");
                         await Shell("input tap 123 84"); lastRetry=DateTime.UtcNow; await Task.Delay(700); continue;
                     }
-                    if(step.Name=="members-open" && difference>=12 && DateTime.UtcNow-lastRetry>TimeSpan.FromSeconds(4) && Matches(screen,steps.Single(s=>s.Name=="memories-tab")))
-                    { await Shell("input tap 32 32"); lastRetry=DateTime.UtcNow; continue; }
+                    if(step.Name=="memories-confirm-once" && difference>=12 && await IsInsufficientCrystalsDialog(screen))
+                    {
+                        SaveCurrentEvidence("artifacts/memories-insufficient-crystals.webp");
+                        Console.WriteLine("Insufficient crystals for Memories gacha; dismissing dialog and treating Memories draw as completed.");
+                        if(!File.Exists("artifacts/memories-confirm-once.sent")) await File.WriteAllTextAsync("artifacts/memories-confirm-once.sent",DateTimeOffset.Now.ToString("O"));
+                        await Shell("input tap 393 406"); await Task.Delay(1200);
+                        var scrollIdx=selectedSteps.FindIndex(s=>s.Name=="gacha-scroll-down");
+                        if(scrollIdx>stepIndex) { stepIndex=scrollIdx-1; previous=null; recovered=true; break; }
+                        skipOptional=true; break;
+                    }
+                    if(step.Name is "members-open" or "area-open" && difference>=12)
+                    {
+                        if(await IsInsufficientCrystalsDialog(screen)) { Console.WriteLine("Dismissing insufficient-crystals dialog before returning home."); await Shell("input tap 393 406"); await Task.Delay(800); continue; }
+                        if(DateTime.UtcNow-lastRetry>TimeSpan.FromSeconds(4) && (Matches(screen,steps.Single(s=>s.Name=="memories-tab")) || Matches(screen,steps.Single(s=>s.Name=="gacha-back-home"))))
+                        { Console.WriteLine("Leaving gacha/subscreen to return home."); await Shell("input tap 32 32"); lastRetry=DateTime.UtcNow; await Task.Delay(800); continue; }
+                    }
+                    // Gacha/subscreen escape handled above.
+                    // (previously members-open back-tap)
                     if(step.Name is "base-data-only" or "base-data-download")
                         if(BasicDataVerified || IsAreaMain(screen)) skipOptional=true;
                     if(step.Name=="song-default" && IsAreaMain(screen)) skipOptional=true;
@@ -789,13 +809,13 @@ internal static partial class Program
                 matches=difference<(step.Name.StartsWith("live-help-")?5:12)?matches+1:0;
                 if(matches>=2) break;
                 // This step follows only the tutorial download. Tapping the movie opens its skip dialog.
-                if(step.Name.EndsWith("-menu") && step.Name!="event-live-menu" && DateTime.UtcNow-lastMovieTap>TimeSpan.FromSeconds(1))
+                if((step.Name=="movie-skip" || (step.Name.EndsWith("-menu") && step.Name!="event-live-menu")) && DateTime.UtcNow-lastMovieTap>TimeSpan.FromSeconds(1))
                 {
-                    await AdvanceNarration(step,afterStory);
+                    await AdvanceNarration(step,step.Name=="movie-skip"?steps.Single(s=>s.Name=="story-menu"):afterStory);
                     lastMovieTap=DateTime.UtcNow;
                     continue;
                 }
-                if(step.Name is "movie-skip" or "tutorial-download" or "opening-skip" or "opening-confirm" && DateTime.UtcNow-lastMovieTap>TimeSpan.FromSeconds(3))
+                if(step.Name is "tutorial-download" or "opening-skip" or "opening-confirm" && DateTime.UtcNow-lastMovieTap>TimeSpan.FromSeconds(3))
                 {
                     var activity=await Shell(ResumedActivity);
                     if(activity.Contains(Package)) await Shell("input tap 480 270");
@@ -840,6 +860,13 @@ internal static partial class Program
                 using var screen=LoadCurrentScreen(); using var template=new Bitmap(step.Image);
                 var best=(Y:step.Top,Error:255.0);
                 for(var top=90;top<465;top++) { var error=EpisodeDifferenceAt(screen,template,step.Left,top,step.Width,step.Height); if(error<best.Error) best=(top,error); }
+                await Shell($"input tap {step.X} {best.Y+step.Height/2}");
+            }
+            else if(step.Name=="guaranteed-tab")
+            {
+                using var screen=LoadCurrentScreen(); using var template=new Bitmap(step.Image);
+                var best=(Y:step.Top,Error:255.0);
+                for(var top=60;top<=screen.Height-step.Height;top+=2) { var error=GuaranteedTabDifferenceAt(screen,template,step.Left,top,step.Width,step.Height); if(error<best.Error) best=(top,error); }
                 await Shell($"input tap {step.X} {best.Y+step.Height/2}");
             }
             else if(step.Action=="tap") await Shell($"input tap {step.X} {step.Y}");
@@ -1012,7 +1039,7 @@ internal static partial class Program
                 await Snapshot(quiet:true);
                 using var screen=LoadCurrentScreen();
                 if(IsStoryChoice(screen)) { Console.WriteLine("Story choice shown; picking the first one."); await Shell($"input tap {StoryChoiceX} 270"); continue; }
-                if(Matches(screen,menu) || IsMovieConfirm(screen) || IsBaseDataDialog(screen) || IsNameDialog(screen) || afterStory!=null && Matches(screen,afterStory))
+                if(Matches(screen,menu) || IsMovieConfirm(screen) || IsDataDownloadProgress(screen) || IsBaseDataDialog(screen) || IsNameDialog(screen) || afterStory!=null && Matches(screen,afterStory))
                 { await Shell("touch /data/local/tmp/sekai-story.stop"); break; }
             }
         }
@@ -1342,6 +1369,26 @@ internal static partial class Program
         await Shell("input tap 570 318");
         VerifiedInviteCode=null;
     }
+    static async Task<bool> IsInsufficientCrystalsDialog(Bitmap screen)
+    {
+        bool Light(int x,int y) { var p=screen.GetPixel(x,y); return p.R>210 && p.G>210 && p.B>210; }
+        // Light modal dialog background and white right button ("クリスタルショップへ", unlike teal "引く").
+        if(!Light(250,200) || !Light(700,200) || !Light(567,406)) return false;
+        try
+        {
+            var text=await OcrRegion(screen,new Rectangle(300,300,360,140),2);
+            if(text.Contains("不足") || text.Contains("クリスタルショップ")) return true;
+        }
+        catch { }
+        // Fallback when Japanese OCR is unavailable: red/pink warning line "クリスタルが不足しています。".
+        int redText=0;
+        for(int y=315;y<345;y++) for(int x=350;x<610;x++)
+        {
+            var p=screen.GetPixel(x,y);
+            if(p.R>200 && p.G<120 && p.B<140) redText++;
+        }
+        return redText>=30;
+    }
     static async Task SkipGacha()
     {
         var skip=new Step("skip","templates/memories-animation-skip.png",928,32,913,17,30,30,"tap");
@@ -1446,6 +1493,13 @@ internal static partial class Program
             }
             return best;
         }
+        // Gacha banner count varies by event, so the guaranteed tab can sit anywhere on the left list.
+        if(step.Name=="guaranteed-tab")
+        {
+            double best=255;
+            for(var top=60;top<=screen.Height-step.Height;top+=2) best=Math.Min(best,GuaranteedTabDifferenceAt(screen,expected,step.Left,top,step.Width,step.Height));
+            return best;
+        }
         // Episode count changes row positions; match only 第1話 over the story list.
         if(step.Name is "event-story-first")
         {
@@ -1460,6 +1514,22 @@ internal static partial class Program
             if(step.Left+dx>=0 && step.Top+dy>=0 && step.Left+dx+step.Width<=screen.Width && step.Top+dy+step.Height<=screen.Height)
                 bestLocal=Math.Min(bestLocal,DifferenceAt(screen,expected,step.Left+dx,step.Top+dy,step.Width,step.Height));
         return bestLocal;
+    }
+    // Compare only opaque foreground pixels of the ★4 guaranteed banner logo (gold ★4, white text, deep-blue outline),
+    // ignoring the semi-transparent background that changes with whichever gacha artwork is behind the sidebar.
+    static double GuaranteedTabDifferenceAt(Bitmap screen,Bitmap expected,int left,int top,int width,int height)
+    {
+        if(left<0 || top<0 || left+width>screen.Width || top+height>screen.Height || width>expected.Width || height>expected.Height) return 255;
+        long error=0; int samples=0;
+        for(int y=0;y<height;y+=2) for(int x=0;x<width;x+=2)
+        {
+            var b=expected.GetPixel(x,y);
+            bool opaque=(b.R>225 && b.G>225 && b.B>225) || (b.R>200 && b.G>150 && b.B<110) || (b.B>130 && b.R<80);
+            if(!opaque) continue;
+            var a=screen.GetPixel(left+x,top+y);
+            error+=Math.Abs(a.R-b.R)+Math.Abs(a.G-b.G)+Math.Abs(a.B-b.B); samples+=3;
+        }
+        return samples<60?255:(double)error/samples;
     }
     static double DifferenceAt(Bitmap screen,Bitmap expected,int left,int top,int width,int height)
     {
