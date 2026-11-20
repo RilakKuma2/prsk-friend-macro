@@ -271,7 +271,7 @@ internal static partial class Program
     {
         foreach(var name in from==null?SelectedStages:SelectedStages.SkipWhile(s=>s!=from))
         {
-            if(name is "gacha" or "deck") { Console.WriteLine($"Skipped {name} stage: gacha skip is forced in this version."); continue; }
+            // Gacha skip is controlled by the selected stages (default on in UI).
             if(name=="invitation" && !RefreshInviteCode())
             {
                 Console.WriteLine("Skipped invitation stage: no code supplied.");
@@ -554,12 +554,9 @@ internal static partial class Program
         if(Until!=null) selectedSteps=selectedSteps.Take(selectedSteps.FindIndex(s=>s.Name==Until)+1).ToList();
         var invitationSteps=StepsForStage("invitation").Select(s=>s.Name).ToHashSet();
         var invitationStart=LoadStages().Single(s=>s.Name=="invitation").Start;
-        var forcedSkipSteps=StepsForStage("gacha").Concat(StepsForStage("deck")).Select(s=>s.Name).ToHashSet();
-        var gachaStart=LoadStages().Single(s=>s.Name=="gacha").Start;
         for(var stepIndex=0;stepIndex<selectedSteps.Count;stepIndex++)
         {
             var step=selectedSteps[stepIndex];
-            if(forcedSkipSteps.Contains(step.Name)) { if(step.Name==gachaStart) Console.WriteLine("Gacha and deck stages skipped (gacha skip forced)."); continue; }
             if(step.Name is "memories-ten" or "memories-confirm-once" or "memories-result-ok" && File.Exists("artifacts/memories-confirm-once.sent"))
             { if(step.Name=="memories-ten") Console.WriteLine("Memories gacha already completed in this reset session; skipping."); await SaveCheckpoint(step.Name,"executed"); continue; }
             if(step.Name is "guaranteed-one" or "guaranteed-confirm-once" or "guaranteed-result-ok" && File.Exists("artifacts/guaranteed-confirm-once.sent"))

@@ -384,6 +384,7 @@ select.field{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xml
       <select class="field" id="pointDetail" style="margin-top:8px"><option value="">세부 지점 직접 선택</option></select>
     </div>
     <div id="paneStages">
+      <div class="switch" id="skipGachaSw" style="padding-top:4px"><div>가챠 스킵<small>가챠 안 돌려도 스토리 해금 가능</small></div><div class="sw on"></div></div>
       <div class="label">단계 <span id="stageHint" style="font-weight:400"></span></div>
       <div class="chips" id="stageChips"></div>
       <div class="loop" id="paneLoop"><div>반복<small id="loopHint"></small></div>
@@ -576,7 +577,7 @@ Object.assign(DICT.ja,{"초대 코드":"招待コード","지금 코드":"現在
   "새 버전 v{0}이(가) 나왔지만 이 운영체제용 파일이 아직 없습니다.":"新バージョン v{0} がありますが、このOS用のファイルがまだありません。",
   "새 버전 v{0}이(가) 나왔어요 (현재 v{1}). 지금 업데이트할까요? 받은 뒤 자동으로 다시 열려요.":"新バージョン v{0} があります（現在 v{1}）。今すぐ更新しますか？取得後に自動で開き直します。",
   "새 버전 v{0}이(가) 나왔어요 (현재 v{1}). 다운로드할까요?":"新バージョン v{0} があります（現在 v{1}）。ダウンロードしますか？",
-  "지금 업데이트":"今すぐ更新","다운로드":"ダウンロード","나중에":"あとで","업데이트 다운로드 및 설치 중… 잠시 후 자동으로 다시 열립니다.":"アップデートを取得・インストール中… まもなく自動で再起動します。"});
+  "지금 업데이트":"今すぐ更新","다운로드":"ダウンロード","나중에":"あとで","업데이트 다운로드 및 설치 중… 잠시 후 자동으로 다시 열립니다.":"アップデートを取得・インストール中… まもなく自動で再起動します。","가챠 스킵":"ガチャスキップ","가챠 안 돌려도 스토리 해금 가능":"ガチャを引かなくてもストーリー解放可能"});
 Object.assign(DICT.en,{"초대 코드":"Invitation code","지금 코드":"Current codes","새 코드":"New code","{0}대에 초대 코드를 저장했어요":"Saved the invitation code on {0}","{0}대 대기열에 추가했어요":"Queued the code on {0}",
   "{0} VM을 만들고 복제하고 세팅해요":"Create, copy and set up {0} VMs","{0} VM에 게임을 설치하고 세팅해요":"Install the game on a {0} VM and set it up","{0}에서 VM이 완전히 삭제돼요. 매크로 기록은 local/removed에 남아요.":"The VM is deleted from {0}. Macro records stay in local/removed.",
   "VM은 {0} 멀티 인스턴스 매니저에서 만들어요":"Create VMs in the {0} multi-instance manager",
@@ -585,7 +586,7 @@ Object.assign(DICT.en,{"초대 코드":"Invitation code","지금 코드":"Curren
   "새 버전 v{0}이(가) 나왔지만 이 운영체제용 파일이 아직 없습니다.":"Version v{0} is out, but the package for this OS is not ready yet.",
   "새 버전 v{0}이(가) 나왔어요 (현재 v{1}). 지금 업데이트할까요? 받은 뒤 자동으로 다시 열려요.":"Version v{0} is available (current v{1}). Update now? The app will reopen automatically.",
   "새 버전 v{0}이(가) 나왔어요 (현재 v{1}). 다운로드할까요?":"Version v{0} is available (current v{1}). Download it now?",
-  "지금 업데이트":"Update now","다운로드":"Download","나중에":"Later","업데이트 다운로드 및 설치 중… 잠시 후 자동으로 다시 열립니다.":"Downloading and installing update… The app will reopen shortly."});
+  "지금 업데이트":"Update now","다운로드":"Download","나중에":"Later","업데이트 다운로드 및 설치 중… 잠시 후 자동으로 다시 열립니다.":"Downloading and installing update… The app will reopen shortly.","가챠 스킵":"Skip gacha","가챠 안 돌려도 스토리 해금 가능":"Stories can be unlocked without pulling gacha"});
 const isMac=()=>state.meta?.emulator==='bluestacks';
 const block=()=>state.meta?.block||1000;
 const emus=()=>state.meta?.emulators||[];
@@ -609,7 +610,9 @@ function translatePage(){
   $('#langBtn').title=LANGS[lang];
 }
 translatePage();
-const state={meta:null,list:[],sel:new Set(),detail:null,live:false,tap:false,local:false,mode:'resume',point:'saved',stages:[],unit:'mmj',boot:true,targets:[],loops:1,inv:{mixed:false,orig:'',origMode:'permanent',origLimit:1}};
+const state={meta:null,list:[],sel:new Set(),detail:null,live:false,tap:false,local:false,mode:'resume',point:'saved',stages:[],skipGacha:true,unit:'mmj',boot:true,targets:[],loops:1,inv:{mixed:false,orig:'',origMode:'permanent',origLimit:1}};
+const GACHA_SKIP=['gacha','deck'];
+const defaultStages=()=>state.meta.plan.filter(s=>!state.skipGacha||!GACHA_SKIP.includes(s));
 const LOCK='<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="7" width="10" height="7" rx="2" fill="currentColor" stroke="none"/><path d="M5.2 7V5a2.8 2.8 0 0 1 5.6 0v2"/></svg>';
 const UNLOCK='<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="7" width="10" height="7" rx="2" fill="currentColor" stroke="none"/><path d="M5.2 7V5a2.8 2.8 0 0 1 5.4-1"/></svg>';
 const CHECK='<svg width="14" height="14" viewBox="0 0 14 14"><path d="M3 7.2l2.6 2.6L11 4.4" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
@@ -801,7 +804,7 @@ function setMode(m){state.mode=m;$$('#modeSeg button').forEach(b=>b.classList.to
   $('#paneUnit').style.display=m==='resume'?'none':'';$('#resetNote').style.display=m==='run'?'':'none';
   $('#stageHint').textContent=t(m==='run'?'· 순서대로 진행':'· 초기화 없이 진행');
   $('#paneLoop').style.display=m==='run'?'':'none';
-  if(m==='run'&&!state.stages.includes('onboarding'))state.stages=[...state.meta.plan];
+  if(m==='run'&&!state.stages.includes('onboarding'))state.stages=defaultStages();
   renderStages();
   const go=$('#runGo');go.className='btn block '+(m==='run'?'danger':'primary');go.textContent=t(m==='run'?'{0}대 초기화 후 시작':'{0}대 시작',state.targets.length);
   if(m==='run')renderLoop();}
@@ -843,11 +846,12 @@ function renderInv(){
 $('#loopDown').onclick=()=>{state.loops=Math.max(1,state.loops-1);renderLoop()};
 $('#loopUp').onclick=()=>{state.loops=Math.min(99,state.loops+1);renderLoop()};
 function renderStages(){
+  $('#skipGachaSw .sw').classList.toggle('on',state.skipGacha);
   const chips=$('#stageChips');chips.innerHTML='';
   const order=state.meta.stages.map(s=>s.name);
   state.meta.stages.forEach(s=>{const b=document.createElement('button');const idx=state.stages.indexOf(s.name);b.className='tog'+(idx>=0?' on':'');
     b.innerHTML=(idx>=0?`<span class="n">${idx+1}</span>`:'')+esc(s.title);
-    b.onclick=()=>{const k=state.stages.indexOf(s.name);if(k>=0)state.stages.splice(k,1);else{state.stages.push(s.name);state.stages.sort((a,b)=>order.indexOf(a)-order.indexOf(b))}renderStages()};chips.appendChild(b)});
+    b.onclick=()=>{const k=state.stages.indexOf(s.name);if(k>=0)state.stages.splice(k,1);else{state.stages.push(s.name);state.stages.sort((a,b)=>order.indexOf(a)-order.indexOf(b))}state.skipGacha=GACHA_SKIP.every(n=>!state.stages.includes(n));renderStages()};chips.appendChild(b)});
 }
 function renderPoints(){
   const box=$('#points');box.innerHTML='';
@@ -870,6 +874,13 @@ function openRun(mode,targets){
 $$('#modeSeg button').forEach(b=>b.onclick=()=>setMode(b.dataset.mode));
 $('#pointDetail').onchange=e=>{if(e.target.value){state.point=e.target.value;renderPoints()}};
 $('#bootSw').onclick=()=>{state.boot=!state.boot;$('#bootSw .sw').classList.toggle('on',state.boot)};
+$('#skipGachaSw').onclick=()=>{
+  state.skipGacha=!state.skipGacha;
+  const order=state.meta.stages.map(s=>s.name);
+  if(state.skipGacha)state.stages=state.stages.filter(s=>!GACHA_SKIP.includes(s));
+  else{for(const s of GACHA_SKIP)if(!state.stages.includes(s))state.stages.push(s);state.stages.sort((a,b)=>order.indexOf(a)-order.indexOf(b))}
+  renderStages();
+};
 $$('[data-run]').forEach(b=>b.onclick=()=>openRun(b.dataset.run,[...state.sel].sort((a,b)=>a-b)));
 $('#runGo').onclick=async()=>{
   if(state.mode!=='resume'&&!state.stages.length)return toast(t('단계를 하나 이상 고르세요'),true);
@@ -1180,7 +1191,7 @@ $('#updateBtn').onclick=()=>checkUpdate(true);
   $('#arrange').style.display=curTab()&&!curTab().canArrange?'none':'';
   // The server's language is shared by every client (and its messages and logs); follow it.
   if(state.meta.language&&state.meta.language!==lang){lang=state.meta.language;try{localStorage.setItem('lang',lang)}catch(e){}translatePage()}
-  state.stages=[...state.meta.plan];
+  state.stages=defaultStages();
   fillUnits($('#unitSeg'),k=>{state.unit=k;markUnits($('#unitSeg'),'#unitHint',k)});
   loadEvent();setInterval(loadEvent,10*60e3);
   const sel=$('#pointDetail');
