@@ -49,8 +49,8 @@ internal static partial class Program
     {
         if(StopRequested || File.Exists("artifacts/macro.stop")) return "stop requested";
         if(StageIncomplete) return "event stories incomplete";
-        if(!RefreshInviteCode()) return "no invitation code left";
-        if(CurrentLoopInvite("artifacts")?.Result!="registered") return "invitation was not registered in this loop";
+        var hasCode=RefreshInviteCode();
+        if(CurrentLoopInvite("artifacts")?.Result!="registered") return hasCode?"invitation was not registered in this loop":"no invitation code left";
         return null;
     }
 

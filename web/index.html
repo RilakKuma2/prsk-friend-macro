@@ -612,6 +612,11 @@ Object.assign(DICT.ja,{"초대 코드":"招待コード","지금 코드":"現在
   "지금 업데이트":"今すぐ更新","다운로드":"ダウンロード","나중에":"あとで","업데이트 다운로드 및 설치 중… 잠시 후 자동으로 다시 열립니다.":"アップデートを取得・インストール中… まもなく自動で再起動します。","가챠 스킵":"ガチャスキップ","가챠 안 돌려도 스토리 해금 가능 · 실행 중 변경 시 다음 회차부터 적용":"ガチャを引かなくてもストーリー解放可能 · 実行中に変更すると次の周回から適用",
   "가챠 스킵 켰어요":"ガチャスキップをオンにしました","가챠 스킵 껐어요":"ガチャスキップをオフにしました",
   "가챠 스킵 켰어요 · 실행 중인 VM은 다음 회차부터 적용":"ガチャスキップをオンにしました · 実行中のVMは次の周回から適用","가챠 스킵 껐어요 · 실행 중인 VM은 다음 회차부터 적용":"ガチャスキップをオフにしました · 実行中のVMは次の周回から適用",
+  "{0}은 일회용 코드 {1}회 + 추가 1회로 최대 {2}회까지 돌 수 있어요":"{0}は使い捨てコード{1}回＋追加1回で最大{2}回まで回せます",
+  "일회용 코드 {0}회 + 추가 1회로 최대 {1}회까지 돌 수 있어요":"使い捨てコード{0}回＋追加1回で最大{1}回まで回せます",
+  "{0}은 등록된 초대 코드가 없어 1회만 돌 수 있어요":"{0}は登録された招待コードがないため1回のみ回せます",
+  "등록된 초대 코드가 없어 1회만 돌 수 있어요":"登録された招待コードがないため1回のみ回せます",
+  "초대 코드가 없으면 1회만 돌 수 있어요":"招待コードがない場合は1回のみ回せます",
   "유닛을 맞게 고르면 가챠를 스킵해도 무방합니다":"ユニットを正しく選べばガチャをスキップしても問題ありません",
   "로그":"ログ","가동시간":"稼働時間","이번 턴 총 가동시간":"今周の合計稼働時間","가동 기록 없음":"稼働記録がありません",
   "재시작 후 복귀":"再起動後に復帰","재시작 {0}회 · {1}":"再起動 {0}回 · {1}","이전 턴 기록":"過去の周回記録",
@@ -629,6 +634,12 @@ Object.assign(DICT.en,{"초대 코드":"Invitation code","지금 코드":"Curren
   "지금 업데이트":"Update now","다운로드":"Download","나중에":"Later","업데이트 다운로드 및 설치 중… 잠시 후 자동으로 다시 열립니다.":"Downloading and installing update… The app will reopen shortly.","가챠 스킵":"Skip gacha","가챠 안 돌려도 스토리 해금 가능 · 실행 중 변경 시 다음 회차부터 적용":"Stories unlock without gacha · changes apply from the next loop",
   "가챠 스킵 켰어요":"Gacha skip enabled","가챠 스킵 껐어요":"Gacha skip disabled",
   "가챠 스킵 켰어요 · 실행 중인 VM은 다음 회차부터 적용":"Gacha skip enabled · running VMs apply it on the next loop","가챠 스킵 껐어요 · 실행 중인 VM은 다음 회차부터 적용":"Gacha skip disabled · running VMs apply it on the next loop",
+  "{0} allows up to {2} loops ({1} + 1)":"{0} allows up to {2} loops ({1} + 1)",
+  "{0}은 일회용 코드 {1}회 + 추가 1회로 최대 {2}회까지 돌 수 있어요":"{0} allows up to {2} loops ({1} + 1)",
+  "일회용 코드 {0}회 + 추가 1회로 최대 {1}회까지 돌 수 있어요":"The single-use code allows up to {1} loops ({0} + 1)",
+  "{0}은 등록된 초대 코드가 없어 1회만 돌 수 있어요":"{0}: no invitation code saved (up to 1 loop)",
+  "등록된 초대 코드가 없어 1회만 돌 수 있어요":"No invitation code saved (up to 1 loop)",
+  "초대 코드가 없으면 1회만 돌 수 있어요":"Without an invitation code, up to 1 loop can run",
   "유닛을 맞게 고르면 가챠를 스킵해도 무방합니다":"With the right unit picked, skipping gacha is safe",
   "로그":"Log","가동시간":"Runtime","이번 턴 총 가동시간":"Total runtime (this turn)","가동 기록 없음":"No runtime record yet",
   "재시작 후 복귀":"Restart & recover","재시작 {0}회 · {1}":"{0} restarts · {1}","이전 턴 기록":"Previous turns",
@@ -884,16 +895,16 @@ function loopRoom(n){
   if(act==='keep')return i?i.inviteCapacity:0;
   return !rInv.once||i?.queueCapacity===null?null:rInv.limit+(i?.queueCapacity||0);
 }
-// Each loop registers the code once: no code allows one run, a single-use code as many loops as its uses.
+// Loops can run up to saved invitation registrations + 1 (last loop stops awaiting a new code); permanent code has no limit.
 function renderLoop(){
   const rooms=state.targets.map(n=>({n,room:loopRoom(n)})).filter(r=>r.room!=null);
-  const room=rooms.length?Math.min(...rooms.map(r=>r.room)):null,max=room==null?99:Math.max(1,Math.min(99,room));
+  const room=rooms.length?Math.min(...rooms.map(r=>r.room)):null,max=room==null?99:Math.max(1,Math.min(99,room+1));
   state.loops=Math.min(state.loops,max);
   const who=nths(rooms.filter(r=>r.room===room).map(r=>r.n)),many=state.targets.length>1;
   const hint=$('#loopHint');hint.classList.toggle('warn',room!=null);
   hint.textContent=room==null?t('회차마다 새 계정으로 초대 코드를 등록해요')
-    :room===0?(many?t('{0}은 등록된 초대 코드가 없어요',who):t('등록된 초대 코드가 없어요'))
-    :(many?t('{0}은 일회용 코드 사용 횟수가 {1}회예요',who,room):t('일회용 코드 사용 횟수가 {0}회예요',room));
+    :room===0?(many?t('{0}은 등록된 초대 코드가 없어 1회만 돌 수 있어요',who):t('등록된 초대 코드가 없어 1회만 돌 수 있어요'))
+    :(many?t('{0}은 일회용 코드 {1}회 + 추가 1회로 최대 {2}회까지 돌 수 있어요',who,room,max):t('일회용 코드 {0}회 + 추가 1회로 최대 {1}회까지 돌 수 있어요',room,max));
   $('#loopN').textContent=t('{0}회',state.loops);
   $('#loopDown').disabled=state.loops<=1;$('#loopUp').disabled=state.loops>=max;
   const go=$('#runGo');if(state.mode==='run')go.textContent=t('{0}대 초기화 후 시작',state.targets.length)+(state.loops>1?' · '+t('{0}회',state.loops):'');
@@ -1227,12 +1238,12 @@ function renderVm(){
   $('#vUnitBox').style.display=(!clone&&vm.setup)||vm.start?'':'none';
   markUnits($('#vUnitSeg'),'#vUnitHint',vm.unit);
   $('#vStartOpts').style.display=vm.start?'':'none';
-  // Each loop registers the code once: none without a code, a single-use code as many as its uses.
-  const room=!vInv.code()?0:vInv.once?vInv.limit:null,max=room==null?99:Math.max(1,room);
+  // Loops can run up to saved invitation registrations + 1; permanent code has no limit.
+  const room=!vInv.code()?0:vInv.once?vInv.limit:null,max=room==null?99:Math.max(1,Math.min(99,room+1));
   vm.loops=Math.min(vm.loops,max);
   $('#vLoopN').textContent=t('{0}회',vm.loops);$('[data-vl="-1"]').disabled=vm.loops<=1;$('[data-vl="1"]').disabled=vm.loops>=max;
   const hint=$('#vLoopHint');hint.classList.toggle('warn',room!=null);
-  hint.textContent=room===0?t('초대 코드를 넣으면 반복할 수 있어요'):room!=null?t('일회용 코드 사용 횟수가 {0}회예요',room):'';
+  hint.textContent=room===0?t('초대 코드가 없으면 1회만 돌 수 있어요'):room!=null?t('일회용 코드 {0}회 + 추가 1회로 최대 {1}회까지 돌 수 있어요',room,max):'';
   $('#vmGo').textContent=clone?t('{0}대 복제',n):t('세팅 시작');
   renderDisk();
 }

@@ -188,10 +188,10 @@ internal static partial class Program
         };
     }
 
-    // Each loop registers the invitation once, so the saved codes must allow as many registrations as loops.
-    static string? LoopBlocker(int instance,int loops,int? capacity)=>capacity is not { } room || loops<=room?null
-        :room==0?T($"{VmNo(instance)}번은 등록된 초대 코드가 없어 반복할 수 없어요.",$"{VmNo(instance)}番は登録された招待コードがないため繰り返せません。",$"{VmHash(instance)} has no invitation code, so it cannot loop.")
-        :T($"{VmNo(instance)}번 일회용 코드는 {room}회까지만 반복할 수 있어요.",$"{VmNo(instance)}番の使い捨てコードは{room}回までしか繰り返せません。",$"{VmHash(instance)} single-use code allows only {room} loops.");
+    // Loops can run up to saved invitation capacity + 1 (the final run stays ready for a new code).
+    static string? LoopBlocker(int instance,int loops,int? capacity)=>capacity is not { } room || loops<=room+1?null
+        :room==0?T($"{VmNo(instance)}번은 등록된 초대 코드가 없어 1회까지만 돌 수 있어요.",$"{VmNo(instance)}番は登録された招待コードがないため1回までしか回せません。",$"{VmHash(instance)} has no invitation code, so it can run only 1 loop.")
+        :T($"{VmNo(instance)}번 일회용 코드는 {room}회 + 추가 1회로 최대 {room+1}회까지만 반복할 수 있어요.",$"{VmNo(instance)}番の使い捨てコードは{room}回＋追加1回で最大{room+1}回までしか繰り返せません。",$"{VmHash(instance)} single-use code allows up to {room+1} loops ({room} + 1).");
     static List<string> BuildWorkerArgs(int instance,StartRequest request,int? inviteCapacity)
     {
         if(request.Code is { Length: >0 } code && !System.Text.RegularExpressions.Regex.IsMatch(code,"^[A-Za-z0-9]{15}$"))
@@ -468,12 +468,15 @@ internal static partial class Program
         var dir=ArtifactsDir(instance);
         var loop=ReadLoop(dir)??throw new InvalidOperationException(T($"{VmNo(instance)}번은 반복 기록이 없어요. 처음부터 실행으로 시작하세요.",$"{VmNo(instance)}番には繰り返しの記録がありません。最初から実行で始めてください。",$"{VmHash(instance)} has no loop record. Start it with a run from scratch."));
         if(total<loop.Index || total>99) throw new ArgumentException(T($"회차는 {loop.Index}~99회로 정할 수 있어요.",$"周回は{loop.Index}〜99回にできます。",$"Loops can be set from {loop.Index} to 99."));
-        // Loops after this one each need a registration, and so does this one until it has registered.
+        // Loops can reach remaining registrations + 1 (and pending=1 if the current loop has not registered yet).
         var pending=CurrentLoopInvite(dir)?.Result=="registered"?0:1;
-        if(total>loop.Index && InviteCapacity(dir) is { } room && total-loop.Index+pending>room)
-            throw new InvalidOperationException(room-pending<=0
-                ?T($"{VmNo(instance)}번은 남은 초대 코드가 없어 회차를 늘릴 수 없어요.",$"{VmNo(instance)}番は残りの招待コードがないため周回を増やせません。",$"{VmHash(instance)} has no invitation code left, so loops cannot be added.")
-                :T($"{VmNo(instance)}번 일회용 코드로는 총 {loop.Index+room-pending}회까지 돌 수 있어요.",$"{VmNo(instance)}番の使い捨てコードでは合計{loop.Index+room-pending}回まで回せます。",$"{VmHash(instance)} single-use code allows {loop.Index+room-pending} loops in total."));
+        if(total>loop.Index && InviteCapacity(dir) is { } room && total-loop.Index+pending>room+1)
+        {
+            var maxTotal=loop.Index+room+1-pending;
+            throw new InvalidOperationException(maxTotal<=loop.Index
+                ?T($"{VmNo(instance)}번은 남은 초대 코드가 없어 회차를 더 늘릴 수 없어요.",$"{VmNo(instance)}番は残りの招待コードがないため周回を増やせません。",$"{VmHash(instance)} has no invitation code left, so loops cannot be added.")
+                :T($"{VmNo(instance)}번 일회용 코드로는 총 {maxTotal}회까지 돌 수 있어요.",$"{VmNo(instance)}番の使い捨てコードでは合計{maxTotal}回まで回せます。",$"{VmHash(instance)} single-use code allows up to {maxTotal} loops in total."));
+        }
         WriteJsonAtomic(Path.Combine(dir,LoopFile),loop with { Total=total });
         AppendControlLog(instance,T($"반복 회차 변경: {loop.Total} → {total}",$"周回数を変更: {loop.Total} → {total}",$"Loops changed: {loop.Total} → {total}"));
         return T($"{VmNo(instance)}번 반복을 총 {total}회로 바꿨어요.",$"{VmNo(instance)}番の繰り返しを合計{total}回にしました。",$"{VmHash(instance)} now runs {total} loops in total.");
