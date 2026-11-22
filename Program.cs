@@ -216,8 +216,9 @@ internal static partial class Program
                 var loopsOption=Array.IndexOf(args,"--loops");
                 if(loopsOption>=0)
                 {
-                    if(!int.TryParse(args.ElementAtOrDefault(loopsOption+1),out LoopTotal) || LoopTotal<1 || LoopTotal>99) throw new Exception("--loops must be 1-99.");
-                    if(LoopTotal>1 && args[0]!="run") throw new Exception("--loops requires run.");
+                    if(!int.TryParse(args.ElementAtOrDefault(loopsOption+1),out LoopTotal) || LoopTotal<0 || LoopTotal>99) throw new Exception("--loops must be 0-99.");
+                    if(LoopTotal==0 && !ReadGlobalPool().Enabled) throw new Exception("--loops 0 requires the global invitation pool to be enabled.");
+                    if(LoopTotal!=1 && args[0]!="run") throw new Exception("--loops requires run.");
                     if(LoopTotal>1)
                     {
                         RefreshInviteCode();

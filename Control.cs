@@ -211,11 +211,13 @@ internal static partial class Program
             _ => throw new ArgumentException(T("실행 방식이 올바르지 않습니다.","実行方法が正しくありません。","Invalid run mode."))
         };
         if(request.Mode=="run" && stages.Length>0 && stages[0]!="onboarding") throw new ArgumentException(T("처음부터 실행은 onboarding 단계로 시작해야 합니다.","最初から実行はonboarding段階から始める必要があります。","A run from scratch must start with the onboarding stage."));
-        if(request.Loops is <1 or >99) throw new ArgumentException(T("반복 횟수는 1~99회예요.","繰り返し回数は1〜99回です。","Loops must be 1 to 99."));
-        if(request.Loops>1)
+        var allowAutoLoop=ReadGlobalPool().Enabled && request.Mode=="run" && (request.Invite??"keep")=="keep";
+        if(request.Loops is <0 or >99 || (request.Loops==0 && !allowAutoLoop))
+            throw new ArgumentException(T("반복 횟수는 1~99회예요.","繰り返し回数は1〜99回です。","Loops must be 1 to 99."));
+        if(request.Loops!=1)
         {
             if(request.Mode!="run") throw new ArgumentException(T("반복은 처음부터 실행에서만 할 수 있어요.","繰り返しは最初から実行でのみ使えます。","Loops are only available for runs from scratch."));
-            if(LoopBlocker(instance,request.Loops,inviteCapacity) is { } blocker) throw new ArgumentException(blocker);
+            if(request.Loops>1 && LoopBlocker(instance,request.Loops,inviteCapacity) is { } blocker) throw new ArgumentException(blocker);
             args.AddRange(["--loops",request.Loops.ToString()]);
         }
         args.AddRange(["--instance",instance.ToString(),"--background"]);
@@ -233,7 +235,8 @@ internal static partial class Program
         else if(invite is not ("keep" or "clear")) throw new ArgumentException(T("초대 코드 설정이 올바르지 않습니다.","招待コードの設定が正しくありません。","Invalid invitation code setting."));
         var dir=ArtifactsDir(instance);
         var active=ReadInviteSetting(dir); var queue=ReadInviteQueue(dir); var used=active==null?0:ActiveInviteUses(dir,active);
-        var globalOn=ReadGlobalPool().Enabled && invite=="keep";
+        var pool=ReadGlobalPool();
+        var globalOn=pool.Enabled && invite=="keep";
         var capacity=globalOn?GlobalPoolCapacity(excludeInstance:instance):invite switch
         {
             "set"=>InviteCapacity(NewInvite(request.InviteCode!,request.InviteMode!,request.InviteLimit),0,queue),
@@ -241,6 +244,8 @@ internal static partial class Program
             "clear"=>0,
             _=>InviteCapacity(active,used,queue)
         };
+        if(globalOn && request.Mode=="run" && request.Loops==0 && !pool.ExtraLoopWhenEmpty && capacity is <=0)
+            throw new InvalidOperationException(T("전역 초대 코드 목표 횟수가 모두 차거나 진행 중이에요.","グローバル招待コードの目標回数はすべて完了または進行中です。","All global invitation quotas are complete or already covered by running VMs."));
         var args=BuildWorkerArgs(instance,request,capacity);
         if(invite=="set") SaveInvite(instance,request.InviteCode!.Trim(),request.InviteMode!,request.InviteLimit);
         else if(invite=="queue") EnqueueInvite(instance,request.InviteCode!.Trim(),request.InviteMode!,request.InviteLimit);
@@ -474,7 +479,11 @@ internal static partial class Program
         RequireInstance(instance);
         var dir=ArtifactsDir(instance);
         var loop=ReadLoop(dir)??throw new InvalidOperationException(T($"{VmNo(instance)}번은 반복 기록이 없어요. 처음부터 실행으로 시작하세요.",$"{VmNo(instance)}番には繰り返しの記録がありません。最初から実行で始めてください。",$"{VmHash(instance)} has no loop record. Start it with a run from scratch."));
-        if(total<loop.Index || total>99) throw new ArgumentException(T($"회차는 {loop.Index}~99회로 정할 수 있어요.",$"周回は{loop.Index}〜99回にできます。",$"Loops can be set from {loop.Index} to 99."));
+        if(total==0)
+        {
+            if(!ReadGlobalPool().Enabled) throw new InvalidOperationException(T("자동 반복은 전역 초대 코드가 켜져 있을 때만 쓸 수 있어요.","自動繰り返しはグローバル招待コードがオンの時のみ使えます。","Auto-loop requires the global invitation pool to be enabled."));
+        }
+        else if(total<loop.Index || total>99) throw new ArgumentException(T($"회차는 {loop.Index}~99회로 정할 수 있어요.",$"周回は{loop.Index}〜99回にできます。",$"Loops can be set from {loop.Index} to 99."));
         // Loops can reach remaining registrations + 1 (and pending=1 if the current loop has not registered yet).
         var pending=CurrentLoopInvite(dir)?.Result=="registered"?0:1;
         if(total>loop.Index && InviteCapacity(dir) is { } room && total-loop.Index+pending>room+1)
@@ -485,8 +494,9 @@ internal static partial class Program
                 :T($"{VmNo(instance)}번 일회용 코드로는 총 {maxTotal}회까지 돌 수 있어요.",$"{VmNo(instance)}番の使い捨てコードでは合計{maxTotal}回まで回せます。",$"{VmHash(instance)} single-use code allows up to {maxTotal} loops in total."));
         }
         WriteJsonAtomic(Path.Combine(dir,LoopFile),loop with { Total=total });
-        AppendControlLog(instance,T($"반복 회차 변경: {loop.Total} → {total}",$"周回数を変更: {loop.Total} → {total}",$"Loops changed: {loop.Total} → {total}"));
-        return T($"{VmNo(instance)}번 반복을 총 {total}회로 바꿨어요.",$"{VmNo(instance)}番の繰り返しを合計{total}回にしました。",$"{VmHash(instance)} now runs {total} loops in total.");
+        AppendControlLog(instance,T($"반복 회차 변경: {loop.Total} → {(total==0?"자동":total)}",$"周回数を変更: {loop.Total} → {(total==0?"自動":total)}",$"Loops changed: {loop.Total} → {(total==0?"auto":total)}"));
+        return total==0?T($"{VmNo(instance)}번 반복을 전역 목표 완료까지 자동으로 바꿨어요.",$"{VmNo(instance)}番の繰り返しをグローバル目標完了まで自動にしました。",$"{VmHash(instance)} now auto-loops until the global pool completes.")
+            :T($"{VmNo(instance)}번 반복을 총 {total}회로 바꿨어요.",$"{VmNo(instance)}番の繰り返しを合計{total}回にしました。",$"{VmHash(instance)} now runs {total} loops in total.");
     }
 
     // Changes the registration count of the active single-use code (index -1) or a queued one; never below what is already used.
@@ -773,18 +783,19 @@ internal static partial class Program
             s.Limit,
             s.Mode
         })).OrderBy(x=>x.Instance).ToList();
-        return new { pool.Enabled,Items=stats,ActiveRuns=activeRuns };
+        return new { pool.Enabled,pool.ExtraLoopWhenEmpty,Items=stats,ActiveRuns=activeRuns };
     }
 
-    static async Task<string> SetGlobalPoolEnabled(bool enabled)
+    static async Task<string> UpdateGlobalPoolSettings(bool? enabled,bool? extraLoopWhenEmpty)
     {
-        WithGlobalInviteLock(()=>
+        var updated=WithGlobalInviteLock(()=>
         {
             var pool=ReadGlobalPool();
-            WriteGlobalPool(pool with { Enabled=enabled });
-            return 0;
+            var next=pool with { Enabled=enabled??pool.Enabled,ExtraLoopWhenEmpty=extraLoopWhenEmpty??pool.ExtraLoopWhenEmpty };
+            WriteGlobalPool(next);
+            return next;
         });
-        if(enabled)
+        if(enabled==true)
         {
             foreach(var instance in AllowedInstances.Keys)
             {
@@ -797,13 +808,19 @@ internal static partial class Program
             }
             return T("전역 초대 코드 자동 배정을 켰어요.","グローバル招待コードの自動割り当てをオンにしました。","Global invitation pool enabled.");
         }
-        foreach(var instance in AllowedInstances.Keys)
+        if(enabled==false)
         {
-            var dir=ArtifactsDir(instance);
-            if(!IsWorkerRunning(instance) && !PendingWork.ContainsKey(instance))
-                WithInviteLock(dir,()=>{ if(ReadInviteSetting(dir) is { Global: true } g && ActiveInviteUses(dir,g)==0) File.Delete(Path.Combine(dir,InviteFile)); return 0; });
+            foreach(var instance in AllowedInstances.Keys)
+            {
+                var dir=ArtifactsDir(instance);
+                if(!IsWorkerRunning(instance) && !PendingWork.ContainsKey(instance))
+                    WithInviteLock(dir,()=>{ if(ReadInviteSetting(dir) is { Global: true } g && ActiveInviteUses(dir,g)==0) File.Delete(Path.Combine(dir,InviteFile)); return 0; });
+            }
+            return T("전역 초대 코드 자동 배정을 껐어요. 인스턴스별 설정을 사용합니다.","グローバル招待コードの自動割り当てをオフにしました。インスタンスごとの設定を使います。","Global invitation pool disabled. Using per-instance settings.");
         }
-        return T("전역 초대 코드 자동 배정을 껐어요. 인스턴스별 설정을 사용합니다.","グローバル招待コードの自動割り当てをオフにしました。インスタンスごとの設定を使います。","Global invitation pool disabled. Using per-instance settings.");
+        return updated.ExtraLoopWhenEmpty
+            ?T("목표 완료 뒤 초대 없이 1회 더 대기하도록 설정했어요.","目標達成後に招待なしで1回追加待機するようにしました。","Will run 1 extra no-code loop at the end.")
+            :T("목표를 다 채우면 바로 멈추도록 설정했어요.","目標達成後にすぐ停止するようにしました。","Will stop immediately once quotas are done.");
     }
 
     static void ValidateGlobalInvite(string? code,string? mode,int? limit)

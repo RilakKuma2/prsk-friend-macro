@@ -236,6 +236,21 @@ internal static partial class Program
                 RetireUsedInvite(art1);
                 var next1=EnsureGlobalInvite(art1,1);
                 if(next1?.Code!="GLOBALBBBBBBBB2") throw new Exception("Global pool did not advance VM 1 to priority #2 after quota completion.");
+                // Verify RepeatBlocker with LoopTotal == 0 respects ExtraLoopWhenEmpty toggle.
+                var origLoopTotal=LoopTotal; var origInst=Instance; var origCwd=Directory.GetCurrentDirectory();
+                try
+                {
+                    Instance=1; LoopTotal=0;
+                    Directory.CreateDirectory(InstanceDir(1));
+                    Directory.SetCurrentDirectory(InstanceDir(1));
+                    File.Delete("artifacts/macro.stop");
+                    WriteJsonAtomic(Path.Combine(art1,LoopFile),new LoopState(1,0,DateTimeOffset.Now.AddMinutes(-1),"mmj",["onboarding"]));
+                    WriteGlobalPool(new GlobalPoolFile(true,[new GlobalPoolItem("GLOBALAAAAAAAA1","once",1,t0)],ExtraLoopWhenEmpty:false));
+                    if(RepeatBlocker()==null) throw new Exception("Auto-loop should stop when global pool is exhausted and ExtraLoopWhenEmpty is false.");
+                    WriteGlobalPool(new GlobalPoolFile(true,[new GlobalPoolItem("GLOBALAAAAAAAA1","once",1,t0)],ExtraLoopWhenEmpty:true));
+                    if(RepeatBlocker()!=null) throw new Exception("Auto-loop should allow 1 extra loop when ExtraLoopWhenEmpty is true.");
+                }
+                finally { Directory.SetCurrentDirectory(origCwd); LoopTotal=origLoopTotal; Instance=origInst; }
             }
             finally
             {
@@ -255,7 +270,7 @@ internal static partial class Program
     }
 
     record GlobalPoolItem(string Code,string Mode,int? Limit,DateTimeOffset Added);
-    record GlobalPoolFile(bool Enabled,List<GlobalPoolItem> Items);
+    record GlobalPoolFile(bool Enabled,List<GlobalPoolItem> Items,bool ExtraLoopWhenEmpty=false);
     record GlobalPoolItemStats(string Code,string Mode,int? Limit,DateTimeOffset Added,string? Owner,int Done,int InFlight,int Projected,int[] RunningVms,bool Completed);
 
     static string GlobalPoolPath=>Path.Combine(Workspace,"local","global-invites.json");
@@ -272,14 +287,14 @@ internal static partial class Program
     {
         try
         {
-            if(!File.Exists(GlobalPoolPath)) return new(false,[]);
+            if(!File.Exists(GlobalPoolPath)) return new(false,[],false);
             var pool=JsonSerializer.Deserialize<GlobalPoolFile>(File.ReadAllText(GlobalPoolPath));
-            if(pool==null) return new(false,[]);
+            if(pool==null) return new(false,[],false);
             var valid=(pool.Items??[]).Where(i=>ValidInviteCode(i.Code) && i.Mode is "once" or "permanent")
                 .Select(i=>i.Mode=="once"?i with { Limit=Math.Clamp(i.Limit??1,1,MaxGlobalOnceUses) }:i with { Limit=null }).ToList();
-            return new(pool.Enabled,valid);
+            return new(pool.Enabled,valid,pool.ExtraLoopWhenEmpty);
         }
-        catch { return new(false,[]); }
+        catch { return new(false,[],false); }
     }
     static void WriteGlobalPool(GlobalPoolFile pool) { Directory.CreateDirectory(Path.GetDirectoryName(GlobalPoolPath)!); WriteJsonAtomic(GlobalPoolPath,pool); }
 

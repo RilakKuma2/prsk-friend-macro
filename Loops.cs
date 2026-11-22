@@ -50,20 +50,29 @@ internal static partial class Program
         if(StopRequested || File.Exists("artifacts/macro.stop")) return "stop requested";
         if(StageIncomplete) return "event stories incomplete";
         var hasCode=RefreshInviteCode();
-        if(CurrentLoopInvite("artifacts")?.Result!="registered") return hasCode?"invitation was not registered in this loop":"no invitation code left";
+        var registeredLastLoop=CurrentLoopInvite("artifacts")?.Result=="registered";
+        if(LoopLimit()==0)
+        {
+            var pool=ReadGlobalPool();
+            if(!pool.Enabled) return "global invitation pool is disabled";
+            if(!registeredLastLoop) return hasCode?"invitation was not registered in this loop":"no invitation code left";
+            if(!hasCode && !pool.ExtraLoopWhenEmpty) return "global invitation pool completed or already covered";
+            return null;
+        }
+        if(!registeredLastLoop) return hasCode?"invitation was not registered in this loop":"no invitation code left";
         return null;
     }
 
     static async Task RunLoops(int first)
     {
-        for(LoopIndex=first;LoopIndex<=LoopLimit();LoopIndex++)
+        for(LoopIndex=first;LoopLimit()==0 || LoopIndex<=LoopLimit();LoopIndex++)
         {
             if(LoopIndex>1)
             {
-                if(RepeatBlocker() is { } reason) { Console.WriteLine($"Repeat stopped before loop {LoopIndex}/{LoopTotal}: {reason}."); return; }
+                if(RepeatBlocker() is { } reason) { Console.WriteLine($"Repeat stopped before loop {LoopIndex}/{(LoopLimit()==0?"auto":LoopLimit().ToString())}: {reason}."); return; }
                 var skipGacha=ReadSkipGacha();
                 SelectedStages=StagesWithSkipGacha(SelectedStages,skipGacha);
-                Console.WriteLine($"\n[{DateTimeOffset.Now:O}] Loop {LoopIndex}/{LoopTotal} (skipGacha={skipGacha})");
+                Console.WriteLine($"\n[{DateTimeOffset.Now:O}] Loop {LoopIndex}/{(LoopLimit()==0?"auto":LoopLimit().ToString())} (skipGacha={skipGacha})");
             }
             StartTimingTurn(LoopIndex,LoopLimit(),"run");
             for(var fresh=0;;fresh++)
@@ -84,7 +93,8 @@ internal static partial class Program
                 if(await ExecuteStagesRecovering(fresh<FreshStarts)) { FinishTimingTurn("complete"); break; }
             }
         }
-        if(LoopTotal>1) Console.WriteLine($"All {LoopTotal} loops finished.");
+        if(LoopTotal==0) Console.WriteLine("Auto global loop run finished.");
+        else if(LoopTotal>1) Console.WriteLine($"All {LoopTotal} loops finished.");
     }
 
     // A stage that fails (a step that timed out, a game that stopped responding) is run again from its start after the
@@ -163,7 +173,7 @@ internal static partial class Program
     static async Task ContinueLoops()
     {
         var loop=ReadLoop("artifacts");
-        if(loop==null || loop.Index>=loop.Total) return;
+        if(loop==null || (loop.Total>0 && loop.Index>=loop.Total)) return;
         LoopIndex=loop.Index; LoopTotal=loop.Total; Unit=loop.Unit; SelectedStages=loop.Stages; LoopFileOwned=true;
         await RunLoops(loop.Index+1);
     }
