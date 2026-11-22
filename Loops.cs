@@ -69,6 +69,9 @@ internal static partial class Program
             for(var fresh=0;;fresh++)
             {
                 StageIncomplete=false; SkipInvitation=false;
+                // Clear per-account state from any prior loop before resetting into a new account.
+                SeenRewards=null; HomeGuidesCompleted=false; VerifiedInviteCode=null;
+                TitleVisibleSince=null; TitleRestartCount=0; ProgressStage=null; ActiveStep=null; From=null; Until=null;
                 if(fresh>0)
                 {
                     Console.WriteLine($"Starting loop {LoopIndex} over with a new account ({fresh}/{FreshStarts}); invitation code and loops as they are.");
@@ -145,7 +148,8 @@ internal static partial class Program
             await Snapshot(quiet:true);
             using(var screen=LoadCurrentScreen())
             {
-                if(IsAreaMain(screen)) { Console.WriteLine("Home screen reached after the reboot."); return; }
+                if(IsAreaMain(screen)) { ResetAutoUpdateGuard(); Console.WriteLine("Home screen reached after the reboot."); return; }
+                if(IsAppUpdatePrompt(screen)) { await HandleAppUpdatePrompt(); deadline=DateTime.UtcNow.AddMinutes(5); continue; }
                 if(flow.FirstOrDefault(s=>s.Name is "title-start" or "login-bonus" or "campaign-bonus" or "beginner-bonus" && Matches(screen,s)) is { } step)
                 { await Shell($"input tap {step.X} {step.Y}"); await Task.Delay(1500); continue; }
                 if(await DismissNotice(screen) || await DismissTutorialPanel(screen)) continue;

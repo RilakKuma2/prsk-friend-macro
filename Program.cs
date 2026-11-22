@@ -130,6 +130,7 @@ internal static partial class Program
             if(args[0]=="check-invite-name") { using var shot=new Bitmap(args[1]); Directory.CreateDirectory("artifacts"); Console.WriteLine((await OcrRegion(shot,new Rectangle(250,288,470,34),3))+" => "+(await ReadInviteNickname(shot)??"(none)")); return 0; }
             if(args[0]=="check-received") { using var shot=new Bitmap(args[1]); Console.WriteLine($"ReceivedItems={IsReceivedItems(shot)}, Invitation={ReadInvitationState(shot)}"); return 0; }
             if(args[0]=="check-invite-queue") { VerifyInviteQueue(); return 0; }
+            if(args[0]=="check-update-cache") { VerifyUpdateCache(); return 0; }
             if(args[0]=="check-home") { using var shot=new Bitmap(args[1]); Console.WriteLine(IsAreaMain(shot)); return 0; }
             if(args[0]=="check-auto-end") { using var shot=new Bitmap(args[1]); Console.WriteLine(IsAutoEnd(shot)); return 0; }
             if(args[0]=="check-event") { using var shot=new Bitmap(args[1]); Console.WriteLine($"Button={Matches(shot,LoadSteps().Single(s=>s.Name=="event-story-open"))}, List={IsEventStoryList(shot)}, Episode1={Matches(shot,LoadSteps().Single(s=>s.Name=="event-story-first"))}"); return 0; }
@@ -594,6 +595,24 @@ internal static partial class Program
         await Task.Delay(1500);
         await Snapshot();
     }
+    static readonly Step AppUpdateStep=new("app-update","templates/app-update.png",480,318,410,304,140,30,"checkpoint");
+    static bool AutoUpdateUsedCache;
+    static bool AutoUpdateFetchedFresh;
+    static bool IsAppUpdatePrompt(Bitmap screen)=>Matches(screen,AppUpdateStep);
+    static void ResetAutoUpdateGuard() { AutoUpdateUsedCache=false; AutoUpdateFetchedFresh=false; }
+    static async Task HandleAppUpdatePrompt()
+    {
+        if(AutoUpdateFetchedFresh)
+            throw new Exception("The game still requires an update (新しいアプリがあります) even after installing the latest package.");
+        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] App update prompt detected (新しいアプリがあります); starting automatic update.");
+        string? lastMsg=null;
+        void Report(string msg) { if(msg!=lastMsg) { lastMsg=msg; Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] {msg}"); } }
+        var fromCache=await AutoUpdateInstance(Instance,allowCache:!AutoUpdateUsedCache,Report,()=>StopRequested || File.Exists("artifacts/macro.stop"));
+        if(fromCache) AutoUpdateUsedCache=true; else AutoUpdateFetchedFresh=true;
+        TitleVisibleSince=null; TitleRestartCount=0;
+        await Task.Delay(5000);
+    }
+
     static async Task Tutorial(List<Step>? stageSteps=null)
     {
         var steps=LoadSteps();
@@ -694,6 +713,7 @@ internal static partial class Program
                     // Fast path: when the expected screen is already matched, skip secondary notice/survey/recovery checks.
                     if(difference<threshold)
                     {
+                        if(!step.Name.StartsWith("title-")) ResetAutoUpdateGuard();
                         if(step.Name=="story-no-voice" && !StoryContinuousChecked(screen))
                         {
                             Console.WriteLine("Continuous reading is unchecked; enabling and verifying before starting.");
@@ -718,9 +738,14 @@ internal static partial class Program
                         }
                         continue;
                     }
-                    // An installed game older than the server's asks for a store update and goes no further.
-                    if(Matches(screen,new Step("app-update","templates/app-update.png",480,318,410,304,140,30,"checkpoint")))
-                        throw new Exception("The game must be updated (新しいアプリがあります). Update it in VM management (game update) and start again.");
+                    // When an in-game store update prompt appears, update automatically (reusing today's cached APK if available) and relaunch.
+                    if(IsAppUpdatePrompt(screen))
+                    {
+                        await HandleAppUpdatePrompt();
+                        waitStarted=DateTime.UtcNow; deadline=waitStarted.AddMinutes(10);
+                        lastActivityCheck=DateTime.MinValue; startupRestarts=0; previous=null;
+                        continue;
+                    }
                     if(await RecoverStalledTitle(screen)) { lastActivityCheck=DateTime.MinValue; previous=null; continue; }
                     // Universal stall auto-restart across all steps/stages (except while downloading game data):
                     // 1st stall (75s): restart game app and recover step/stage.

@@ -174,18 +174,24 @@ internal static partial class Program
     }
     static string ApkCache=>Path.Combine(Workspace,"local","apk");
     // adb garbles non-ASCII host paths (this folder is named in Korean), so files it reads or writes pass through
-    // an ASCII-only folder: the temp folder when its path is ASCII, else ProgramData.
-    static string AdbStage()
+    // an ASCII-only folder: the temp folder when its path is ASCII, else ProgramData, scoped per VM so parallel installs do not collide.
+    static string AdbStageRoot()
     {
         var temp=Path.Combine(Path.GetTempPath(),"SekaiMacro-adb");
         var dir=temp.All(c=>c<128)?temp:Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),"SekaiMacro","adb");
         Directory.CreateDirectory(dir);
         return dir;
     }
-    static string Staged(string file)
+    static string AdbStage(int instance)
+    {
+        var dir=Path.Combine(AdbStageRoot(),$"vm-{instance}");
+        Directory.CreateDirectory(dir);
+        return dir;
+    }
+    static string Staged(string file,int instance)
     {
         if(Path.GetFullPath(file).All(c=>c<128)) return file;
-        var copy=Path.Combine(AdbStage(),Path.GetFileName(file));
+        var copy=Path.Combine(AdbStage(instance),Path.GetFileName(file));
         File.Copy(file,copy,true);
         return copy;
     }
@@ -210,7 +216,7 @@ internal static partial class Program
         {
             var remote=line["package:".Length..];
             var local=Path.Combine(dir,Path.GetFileName(remote));
-            var staged=Path.Combine(AdbStage(),Path.GetFileName(remote));
+            var staged=Path.Combine(AdbStage(target),Path.GetFileName(remote));
             await RunLong(TimeSpan.FromMinutes(10),AdbOf(source.Value),"-s",SerialOf(source.Value),"pull",remote,staged);
             File.Move(staged,local,true);
             files.Add(local);
@@ -276,8 +282,96 @@ internal static partial class Program
     static string LatestFile(string key)=>Path.Combine(ApkCache,$"latest-{key}.txt");
     static string KeptPath(string key,string version,bool apk)=>Path.Combine(ApkCache,$"{key}-{(version.Length>0?version:"latest")}{(apk?".apk":".xapk")}");
     static string? KeptVersionFile(string key,string version)=>new[]{KeptPath(key,version,false),KeptPath(key,version,true)}.FirstOrDefault(File.Exists);
-    static string? FileVersion(string file)=>System.Text.RegularExpressions.Regex.Match(Path.GetFileName(file),@"-([0-9][0-9.]*)\.x?apk$").Groups[1].Value is { Length: >0 } v?v:null;
-    static async Task<string> FetchLatest(string key,Action<string> report)
+    static string? FileVersion(string file)=>System.Text.RegularExpressions.Regex.Match(Path.GetFileName(file),@"(?:^|[-_])([0-9]+(?:\.[0-9]+)+)(?=[-_.]|$)").Groups[1].Value is { Length: >0 } v?v:null;
+
+    // Update packages are kept only for the calendar day they were downloaded; expired packages are deleted.
+    record UpdatePackageRecord(string Date,string File,string? Version);
+    static string UpdatePackageMetaPath=>Path.Combine(ApkCache,"update-package.json");
+    static string TodayDate()=>DateTime.Now.ToString("yyyy-MM-dd");
+    static string UnpackDir(int target)=>Path.Combine(ApkCache,$"unpack-{target}");
+    static void DeleteFileQuiet(string? path)
+    {
+        if(string.IsNullOrWhiteSpace(path)) return;
+        try { if(File.Exists(path)) File.Delete(path); } catch { }
+        try { if(File.Exists(path+".part")) File.Delete(path+".part"); } catch { }
+    }
+    static void InvalidateUpdatePackage()
+    {
+        try
+        {
+            if(File.Exists(UpdatePackageMetaPath))
+            {
+                var meta=JsonSerializer.Deserialize<UpdatePackageRecord>(File.ReadAllText(UpdatePackageMetaPath));
+                DeleteFileQuiet(meta?.File);
+                if(meta?.File is { Length: >0 } f && Path.ChangeExtension(f,null) is { } legacy && Directory.Exists(legacy))
+                    try { Directory.Delete(legacy,true); } catch { }
+            }
+        }
+        catch { }
+        DeleteFileQuiet(UpdatePackageMetaPath);
+        DeleteFileQuiet(LatestFile("pjsekai"));
+        DeleteFileQuiet(KeptPath("pjsekai","",false));
+        DeleteFileQuiet(KeptPath("pjsekai","",true));
+    }
+    static UpdatePackageRecord? ReadValidUpdatePackage(bool cleanExpired=true)
+    {
+        try
+        {
+            if(!File.Exists(UpdatePackageMetaPath)) return null;
+            var meta=JsonSerializer.Deserialize<UpdatePackageRecord>(File.ReadAllText(UpdatePackageMetaPath));
+            if(meta==null || string.IsNullOrWhiteSpace(meta.File) || !File.Exists(meta.File) || meta.Date!=TodayDate())
+            {
+                if(cleanExpired) InvalidateUpdatePackage();
+                return null;
+            }
+            return meta;
+        }
+        catch
+        {
+            if(cleanExpired) InvalidateUpdatePackage();
+            return null;
+        }
+    }
+    static UpdatePackageRecord SaveUpdatePackage(string file)
+    {
+        Directory.CreateDirectory(ApkCache);
+        var record=new UpdatePackageRecord(TodayDate(),Path.GetFullPath(file),FileVersion(file));
+        try
+        {
+            if(File.Exists(UpdatePackageMetaPath))
+            {
+                var old=JsonSerializer.Deserialize<UpdatePackageRecord>(File.ReadAllText(UpdatePackageMetaPath));
+                if(old?.File is { Length: >0 } oldPath && Path.GetFullPath(oldPath)!=record.File) DeleteFileQuiet(oldPath);
+            }
+        }
+        catch { }
+        WriteJsonAtomic(UpdatePackageMetaPath,record);
+        return record;
+    }
+    static async Task<TResult> WithUpdateLock<TResult>(Func<Task<TResult>> action,Action<string>? report=null,Func<bool>? shouldStop=null)
+    {
+        Directory.CreateDirectory(ApkCache);
+        var lockPath=Path.Combine(ApkCache,"update.lock");
+        FileStream? stream=null;
+        var notified=false;
+        while(stream==null)
+        {
+            if(shouldStop?.Invoke()==true) throw new OperationCanceledException();
+            try { stream=new FileStream(lockPath,FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None); }
+            catch(IOException)
+            {
+                if(!notified)
+                {
+                    notified=true;
+                    report?.Invoke(T("다른 VM에서 업데이트 파일을 받는 중이라 기다리는 중이에요.","他のVMが更新ファイルを取得中のため待機しています。","Waiting for another VM to finish getting the update package."));
+                }
+                await Task.Delay(2000);
+            }
+        }
+        try { return await action(); }
+        finally { stream.Dispose(); }
+    }
+    static async Task<string> FetchLatest(string key,Action<string> report,Func<bool>? shouldStop=null)
     {
         Directory.CreateDirectory(ApkCache);
         var since=DateTime.Now.AddSeconds(-2);
@@ -289,6 +383,11 @@ internal static partial class Program
         var site=key=="qooapp"?T("QooApp 사이트","QooAppのサイト","the QooApp site"):"apkpure";
         while(DateTime.UtcNow<deadline)
         {
+            if(shouldStop?.Invoke()==true)
+            {
+                try { if(File.Exists(flag)) File.Delete(flag); } catch { }
+                throw new OperationCanceledException();
+            }
             if(File.Exists(flag) && DateTime.UtcNow-asked>TimeSpan.FromSeconds(15))
             {
                 File.Delete(flag); external=true;
@@ -314,7 +413,7 @@ internal static partial class Program
     static async Task<(List<string> Apks,List<(string File,string Path)> Obbs)> UnpackGame(string xapk,int target,Action<string> report)
     {
         report(T("게임 파일 푸는 중","ゲームファイルを展開中","Unpacking the game files"));
-        var dir=Path.ChangeExtension(xapk,null);
+        var dir=UnpackDir(target);
         if(Directory.Exists(dir)) Directory.Delete(dir,true);
         Directory.CreateDirectory(dir);
         using var zip=ZipFile.OpenRead(xapk);
@@ -354,20 +453,29 @@ internal static partial class Program
         if(await GameInstalled(instance)) { report(T("게임이 이미 설치돼 있어요","ゲームはインストール済みです","The game is already installed")); return; }
         Directory.CreateDirectory(ApkCache);
         List<string> apks; List<(string File,string Path)> obbs=[];
-        if(source=="copy") apks=await PullGameFromVm(instance,await GameSourceVm(instance),report);
-        else (apks,obbs)=await UnpackGame(await FetchLatest("pjsekai",report),instance,report);
-        await InstallGameFiles(instance,apks,obbs,null,report);
+        try
+        {
+            if(source=="copy") apks=await PullGameFromVm(instance,await GameSourceVm(instance),report);
+            else
+            {
+                var downloaded=await FetchLatest("pjsekai",report);
+                SaveUpdatePackage(downloaded);
+                (apks,obbs)=await UnpackGame(downloaded,instance,report);
+            }
+            await InstallGameFiles(instance,apks,obbs,null,report);
+        }
+        finally { try { Directory.Delete(UnpackDir(instance),true); } catch { } }
     }
     static async Task InstallGameFiles(int instance,List<string> apks,List<(string File,string Path)> obbs,string? reference,Action<string> report)
     {
         foreach(var (file,path) in obbs)
         {
             report(T("추가 데이터 넣는 중","追加データを転送中","Pushing expansion files"));
-            await RunLong(TimeSpan.FromMinutes(30),AdbOf(instance),"-s",SerialOf(instance),"push",Staged(file),"/sdcard/"+path);
+            await RunLong(TimeSpan.FromMinutes(30),AdbOf(instance),"-s",SerialOf(instance),"push",Staged(file,instance),"/sdcard/"+path);
         }
         report(T("게임 설치 중","ゲームをインストール中","Installing the game"));
-        var output=await RunLong(TimeSpan.FromMinutes(15),AdbOf(instance),["-s",SerialOf(instance),apks.Count>1?"install-multiple":"install","-r","-g",..apks.Select(Staged)]);
-        try { Directory.Delete(AdbStage(),true); } catch { }
+        var output=await RunLong(TimeSpan.FromMinutes(15),AdbOf(instance),["-s",SerialOf(instance),apks.Count>1?"install-multiple":"install","-r","-g",..apks.Select(a=>Staged(a,instance))]);
+        try { Directory.Delete(AdbStage(instance),true); } catch { }
         if(!output.Contains("Success")) throw new Exception(T("게임 설치 실패: ","ゲームのインストールに失敗: ","Game install failed: ")+output.Trim());
         // A downloaded package must be signed like the official game (another VM's copy, or this VM's before an update).
         if(reference==null)
@@ -391,8 +499,8 @@ internal static partial class Program
             if((await Run(AdbOf(instance),"-s",SerialOf(instance),"shell",$"pm path {QooAppPackage} || true")).Contains("package:")) return;
             var apk=await FetchLatest("qooapp",report);
             report(T("QooApp 설치 중","QooAppをインストール中","Installing QooApp"));
-            var output=await RunLong(TimeSpan.FromMinutes(5),AdbOf(instance),"-s",SerialOf(instance),"install","-r",Staged(apk));
-            try { Directory.Delete(AdbStage(),true); } catch { }
+            var output=await RunLong(TimeSpan.FromMinutes(5),AdbOf(instance),"-s",SerialOf(instance),"install","-r",Staged(apk,instance));
+            try { Directory.Delete(AdbStage(instance),true); } catch { }
             if(!output.Contains("Success")) report(T("QooApp 설치 실패: ","QooAppのインストールに失敗: ","QooApp install failed: ")+output.Trim());
         }
         catch(OperationCanceledException) { throw; }
@@ -405,31 +513,128 @@ internal static partial class Program
         catch { return null; }
     }
 
-    // Updates the game on every VM that has it and is not running a macro (an update closes the game).
-    // VMs that are off are turned on for it and off again; the account and downloaded data stay.
-    static async Task<List<int>> UpdateGames(Action<int?,string> report)
+    static async Task<(string File,Version? Version,bool FromCache)> ResolveUpdatePackage(
+        Action<string> report,Version? minNewerThan=null,bool allowCache=true,Func<bool>? shouldStop=null)
     {
-        var xapk=await FetchLatest("pjsekai",d=>report(null,d));
-        var latest=Version.TryParse(FileVersion(xapk)??"",out var v)?v:null;
-        var updated=new List<int>();
-        foreach(var n in AllowedInstances.Keys.ToList())
+        return await WithUpdateLock(async()=>
         {
-            if(IsWorkerRunning(n) || IsLocked(n)) { report(n,T("실행 중이거나 잠겨 있어 건너뜀","実行中またはロック中のためスキップ","Skipped: running or locked")); continue; }
-            var wasOff=!await IsVmRunning(n);
-            if(wasOff) { report(n,T("VM 켜는 중","VM起動中","Booting VM")); await BootVm(n); }
-            try
+            if(shouldStop?.Invoke()==true) throw new OperationCanceledException();
+            if(allowCache && ReadValidUpdatePackage(cleanExpired:true) is { } cached)
             {
-                if(!await GameInstalled(n)) continue;
-                var current=await InstalledGameVersion(n);
-                if(latest!=null && current!=null && current>=latest) { report(n,T($"이미 최신 ({current})",$"最新です ({current})",$"Already latest ({current})")); continue; }
-                var reference=await SignatureOf(n);
-                await Run(AdbOf(n),"-s",SerialOf(n),"shell",$"am force-stop {Package}");
-                var (apks,obbs)=await UnpackGame(xapk,n,d=>report(n,d));
-                await InstallGameFiles(n,apks,obbs,reference,d=>report(n,d));
-                updated.Add(n);
+                var cachedVersion=Version.TryParse(cached.Version??"",out var cv)?cv:null;
+                if(minNewerThan!=null && cachedVersion!=null && minNewerThan>=cachedVersion)
+                {
+                    report(T($"오늘 받은 업데이트 파일({cachedVersion})이 이미 설치된 버전({minNewerThan})보다 새 버전이 아니어서 새로 받아요",
+                        $"本日保存済みの更新ファイル({cachedVersion})が現在のバージョン({minNewerThan})より新しくないため再取得します",
+                        $"Today's cached update ({cachedVersion}) is not newer than installed ({minNewerThan}); fetching the latest"));
+                    InvalidateUpdatePackage();
+                }
+                else
+                {
+                    report(T($"오늘 받아둔 업데이트 파일을 먼저 설치해요 ({Path.GetFileName(cached.File)})",
+                        $"本日保存済みの更新ファイルをまずインストールします ({Path.GetFileName(cached.File)})",
+                        $"Installing today's cached update package first ({Path.GetFileName(cached.File)})"));
+                    return (cached.File,cachedVersion,true);
+                }
             }
-            finally { if(wasOff) await QuitVm(n); }
+            else if(!allowCache) InvalidateUpdatePackage();
+            else ReadValidUpdatePackage(cleanExpired:true);
+
+            var downloaded=await FetchLatest("pjsekai",report,shouldStop);
+            var saved=SaveUpdatePackage(downloaded);
+            var latestVersion=Version.TryParse(saved.Version??"",out var lv)?lv:null;
+            return (saved.File,latestVersion,false);
+        },report,shouldStop);
+    }
+
+    static async Task<bool> UpdateGameOnInstance(int instance,string xapk,Version? latest,Action<string> report,bool checkVersion=true)
+    {
+        if(!await GameInstalled(instance)) return false;
+        var current=await InstalledGameVersion(instance);
+        if(checkVersion && latest!=null && current!=null && current>=latest)
+        {
+            report(T($"이미 최신 ({current})",$"最新です ({current})",$"Already latest ({current})"));
+            return false;
         }
+        var reference=await SignatureOf(instance);
+        await Run(AdbOf(instance),"-s",SerialOf(instance),"shell",$"am force-stop {Package}");
+        try
+        {
+            var (apks,obbs)=await UnpackGame(xapk,instance,report);
+            await InstallGameFiles(instance,apks,obbs,reference,report);
+        }
+        finally { try { Directory.Delete(UnpackDir(instance),true); } catch { } }
+        return true;
+    }
+
+    // Auto-updates the game for a running worker when an in-game update prompt appears, then relaunches it.
+    static async Task<bool> AutoUpdateInstance(int instance,bool allowCache,Action<string> report,Func<bool>? shouldStop=null)
+    {
+        ReadValidUpdatePackage(cleanExpired:true);
+        var current=await InstalledGameVersion(instance);
+        var (xapk,latest,fromCache)=await ResolveUpdatePackage(report,minNewerThan:current,allowCache:allowCache,shouldStop:shouldStop);
+        await UpdateGameOnInstance(instance,xapk,latest,report,checkVersion:false);
+        report(T("게임 다시 실행 중","ゲームを再起動中","Relaunching the game"));
+        await Run(AdbOf(instance),"-s",SerialOf(instance),"shell",$"monkey -p {Package} -c android.intent.category.LAUNCHER 1");
+        return fromCache;
+    }
+
+    static void VerifyUpdateCache()
+    {
+        if(FileVersion("pjsekai-5.2.0.xapk")!="5.2.0" || FileVersion("프로젝트セカイ_5.2.1_APKPure.xapk")!="5.2.1" || FileVersion("pjsekai-latest.xapk")!=null)
+            throw new Exception("FileVersion parsing mismatch.");
+        var original=ControlRoot;
+        var temp=Path.Combine(Path.GetTempPath(),$"SekaiMacro-update-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(temp);
+        try
+        {
+            ControlRoot=temp;
+            Directory.CreateDirectory(ApkCache);
+            var pkg1=Path.Combine(ApkCache,"pjsekai-5.2.0.xapk");
+            File.WriteAllText(pkg1,"dummy1");
+            var saved=SaveUpdatePackage(pkg1);
+            if(saved.Date!=TodayDate() || saved.Version!="5.2.0") throw new Exception("SaveUpdatePackage failed.");
+            var valid=ReadValidUpdatePackage();
+            if(valid==null || !File.Exists(valid.File)) throw new Exception("ReadValidUpdatePackage did not return today's package.");
+            // Replacing with a new package removes the older cached file.
+            var pkg2=Path.Combine(ApkCache,"pjsekai-5.2.1.xapk");
+            File.WriteAllText(pkg2,"dummy2");
+            SaveUpdatePackage(pkg2);
+            if(File.Exists(pkg1) || !File.Exists(pkg2)) throw new Exception("Replacing cached package did not remove old file.");
+            // An expired date deletes both the APK file and metadata.
+            var yesterday=DateTime.Now.AddDays(-1).ToString("yyyy-MM-dd");
+            WriteJsonAtomic(UpdatePackageMetaPath,new UpdatePackageRecord(yesterday,pkg2,"5.2.1"));
+            if(ReadValidUpdatePackage()!=null || File.Exists(pkg2) || File.Exists(UpdatePackageMetaPath))
+                throw new Exception("Expired update package was not deleted.");
+            Console.WriteLine("Update cache verified: dated save, same-day reuse, replacement cleanup, and expired deletion.");
+        }
+        finally
+        {
+            ControlRoot=original;
+            try { Directory.Delete(temp,true); } catch { }
+        }
+    }
+
+    // Updates the game only on currently running VMs of the selected emulator (or all emulators if unset)
+    // that are not running a macro or locked; accounts and downloaded data stay.
+    static async Task<List<int>> UpdateGames(Action<int?,string> report,string? emulator=null)
+    {
+        ReadValidUpdatePackage(cleanExpired:true);
+        var updated=new List<int>();
+        var candidates=new List<(int Instance,Version? Version)>();
+        foreach(var n in AllowedInstances.Keys.Where(n=>emulator==null || KindOf(n)==emulator).ToList())
+        {
+            if(!await IsVmRunning(n)) { report(n,T("꺼져 있어 건너뜀","オフのためスキップ","Skipped: VM is off")); continue; }
+            if(IsWorkerRunning(n) || IsLocked(n)) { report(n,T("실행 중이거나 잠겨 있어 건너뜀","実行中またはロック中のためスキップ","Skipped: running or locked")); continue; }
+            if(!await GameInstalled(n)) { report(n,T("게임이 설치돼 있지 않아 건너뜀","ゲーム未インストールのためスキップ","Skipped: game not installed")); continue; }
+            candidates.Add((n,await InstalledGameVersion(n)));
+        }
+        if(candidates.Count==0) return updated;
+        var minInstalled=candidates.All(c=>c.Version!=null)?candidates.Min(c=>c.Version!):null;
+        var (xapk,latest,_)=await ResolveUpdatePackage(d=>report(null,d),minNewerThan:minInstalled,allowCache:true,shouldStop:()=>File.Exists(Path.Combine(ProvisionDir,"cancel")));
+        foreach(var (n,_) in candidates)
+            if(await UpdateGameOnInstance(n,xapk,latest,d=>report(n,d),checkVersion:true))
+                updated.Add(n);
         return updated;
     }
 
@@ -535,7 +740,7 @@ internal static partial class Program
             if(request.Update)
             {
                 Report("update");
-                var updated=await UpdateGames((n,d)=>{ current=n; if(n is { } i && !instances.Contains(i)) instances.Add(i); Report("update",d); });
+                var updated=await UpdateGames((n,d)=>{ current=n; if(n is { } i && !instances.Contains(i)) instances.Add(i); Report("update",d); },request.Emulator);
                 step="done"; Save("done",T($"{updated.Count}대 업데이트",$"{updated.Count}台を更新",$"Updated {updated.Count}"));
                 return;
             }

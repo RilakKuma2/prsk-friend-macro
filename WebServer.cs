@@ -110,7 +110,7 @@ internal static partial class Program
             // macOS has no app window: the page opens in the default browser and setup picks the file up from Downloads.
             :OpenGamePage()));
 #endif
-        api.MapPost("/vms/update",()=>Ok(StartProvision(new ProvisionRequest(null,1,null,"none",false,null,false,false,1,null,null,null,true))));
+        api.MapPost("/vms/update",(TabRequest? request)=>Ok(StartProvision(new ProvisionRequest(null,1,null,"none",false,null,false,false,1,null,null,null,true,request?.Emulator))));
         api.MapPost("/vms/provision/cancel",()=>Ok(CancelProvision()));
         api.MapPost("/instances/{n:int}/remove",async(int n)=>Ok(await RemoveVm(n)));
         api.MapPost("/ldplayer",(HttpContext context,LdPlayerRequest request)=>

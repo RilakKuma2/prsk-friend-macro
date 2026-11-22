@@ -108,8 +108,9 @@ internal static partial class Program
             await Snapshot(quiet:true);
             using(var screen=LoadCurrentScreen())
             {
+                if(IsAppUpdatePrompt(screen)) { await HandleAppUpdatePrompt(); deadline=DateTime.UtcNow.AddSeconds(90); continue; }
                 if(allowed.FirstOrDefault(s=>s.Name==waiting) is { } w && Matches(screen,w)) return waiting;
-                if(IsAreaMain(screen)) return FindRecoveryStep(screen,waiting,allowed);
+                if(IsAreaMain(screen)) { ResetAutoUpdateGuard(); return FindRecoveryStep(screen,waiting,allowed); }
                 if(flow.FirstOrDefault(s=>s.Name is "title-start" or "login-bonus" or "campaign-bonus" or "beginner-bonus" && Matches(screen,s)) is { } tapStep)
                 {
                     await Shell($"input tap {tapStep.X} {tapStep.Y}");
