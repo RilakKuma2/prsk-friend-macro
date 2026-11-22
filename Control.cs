@@ -58,6 +58,21 @@ internal static partial class Program
         catch(UnauthorizedAccessException) { return true; }
     }
 
+    // Covers the entire window from start preparation -> process spawn (worker.pid) -> instance.lock acquisition so concurrent starts never double-claim global slots.
+    static bool IsWorkerStartingOrRunning(int instance)
+    {
+        if(IsWorkerRunning(instance) || PendingWork.ContainsKey(instance)) return true;
+        try
+        {
+            var pidPath=Path.Combine(ArtifactsDir(instance),"worker.pid");
+            if(!File.Exists(pidPath) || DateTime.UtcNow-File.GetLastWriteTimeUtc(pidPath)>TimeSpan.FromSeconds(15)) return false;
+            if(!int.TryParse(File.ReadAllText(pidPath).Trim(),out var pid)) return false;
+            using var proc=Process.GetProcessById(pid);
+            return !proc.HasExited && (proc.ProcessName.Equals("SekaiMacro",StringComparison.OrdinalIgnoreCase) || proc.ProcessName.Equals("dotnet",StringComparison.OrdinalIgnoreCase));
+        }
+        catch { return false; }
+    }
+
     static async Task<Dictionary<int,string[]>> VmRows()
     {
         await VmListLock.WaitAsync();
@@ -228,78 +243,103 @@ internal static partial class Program
     static async Task<string> StartWorker(int instance,StartRequest request)
     {
         RequireInstance(instance); RequireUnlocked(instance);
-        if(IsWorkerRunning(instance)) throw new InvalidOperationException(T($"{VmNo(instance)}번은 이미 매크로가 실행 중입니다.",$"{VmNo(instance)}番はすでにマクロ実行中です。",$"{VmHash(instance)} is already running a macro."));
-        if(PendingWork.ContainsKey(instance)) throw new InvalidOperationException(T($"{VmNo(instance)}번은 다른 요청을 처리 중입니다.",$"{VmNo(instance)}番は別のリクエストを処理中です。",$"{VmHash(instance)} is busy with another request."));
+        if(IsWorkerStartingOrRunning(instance)) throw new InvalidOperationException(T($"{VmNo(instance)}번은 이미 매크로가 실행 중입니다.",$"{VmNo(instance)}番はすでにマクロ実行中です。",$"{VmHash(instance)} is already running a macro."));
         var invite=request.Invite??"keep";
         if(invite is "set" or "queue") ValidateInvite(request.InviteCode,request.InviteMode,request.InviteLimit);
         else if(invite is not ("keep" or "clear")) throw new ArgumentException(T("초대 코드 설정이 올바르지 않습니다.","招待コードの設定が正しくありません。","Invalid invitation code setting."));
         var dir=ArtifactsDir(instance);
-        var active=ReadInviteSetting(dir); var queue=ReadInviteQueue(dir); var used=active==null?0:ActiveInviteUses(dir,active);
-        var pool=ReadGlobalPool();
-        var globalOn=pool.Enabled && invite=="keep";
-        var capacity=globalOn?GlobalPoolCapacity(excludeInstance:instance):invite switch
+        PendingWork[instance]=T("시작 준비 중","開始準備中","Preparing start");
+        var keepPending=false;
+        var globalAssigned=false;
+        try
         {
-            "set"=>InviteCapacity(NewInvite(request.InviteCode!,request.InviteMode!,request.InviteLimit),0,queue),
-            "queue"=>InviteCapacity(active,used,[..queue,NewInvite(request.InviteCode!,request.InviteMode!,request.InviteLimit)]),
-            "clear"=>0,
-            _=>InviteCapacity(active,used,queue)
-        };
-        if(globalOn && request.Mode=="run" && request.Loops==0 && !pool.ExtraLoopWhenEmpty && capacity is <=0)
-            throw new InvalidOperationException(T("전역 초대 코드 목표 횟수가 모두 차거나 진행 중이에요.","グローバル招待コードの目標回数はすべて完了または進行中です。","All global invitation quotas are complete or already covered by running VMs."));
-        var args=BuildWorkerArgs(instance,request,capacity);
-        if(invite=="set") SaveInvite(instance,request.InviteCode!.Trim(),request.InviteMode!,request.InviteLimit);
-        else if(invite=="queue") EnqueueInvite(instance,request.InviteCode!.Trim(),request.InviteMode!,request.InviteLimit);
-        else if(invite=="clear") ClearAllInvites(instance);
-        if(!await IsVmRunning(instance))
-        {
-            if(!request.BootVm) throw new InvalidOperationException(T($"{VmNo(instance)}번 VM이 꺼져 있습니다. 'VM 켜고 시작'을 선택하거나 먼저 VM을 켜세요.",$"{VmNo(instance)}番のVMがオフです。「オフのVMは起動して開始」を選ぶか、先にVMを起動してください。",$"{VmHash(instance)} VM is off. Turn on 'Boot VMs that are off' or start the VM first."));
-            PendingWork[instance]=T("VM 부팅 대기 중","VM起動待ち","Waiting for VM boot");
-            if(globalOn) EnsureGlobalInvite(dir,instance);
-            _=Task.Run(async()=>
+            var active=ReadInviteSetting(dir); var queue=ReadInviteQueue(dir); var used=active==null?0:ActiveInviteUses(dir,active);
+            var pool=ReadGlobalPool();
+            var globalOn=pool.Enabled && invite=="keep";
+            var capacity=globalOn?GlobalPoolCapacity(excludeInstance:instance):invite switch
             {
-                try { await BootVm(instance); SpawnWorker(instance,args); }
-                catch(Exception ex) { AppendControlLog(instance,T("VM 부팅 후 시작 실패: ","VM起動後の開始に失敗: ","Start after VM boot failed: ")+ex.Message); }
-                finally { PendingWork.TryRemove(instance,out _); }
-            });
-            return T($"{VmNo(instance)}번 VM을 켜는 중입니다. 부팅이 끝나면 자동으로 시작합니다.",$"{VmNo(instance)}番のVMを起動中です。起動が終わると自動で開始します。",$"Booting {VmHash(instance)} VM. The macro starts when it is ready.");
-        }
-        await ConnectVm(instance);
-        if(!await LiveResolutionOk(instance))
-        {
-            if(!FixesSettings(instance))
-                throw new InvalidOperationException(T(
-                    $"{VmNo(instance)}번 해상도·DPI가 960×540 · DPI 160이 아닙니다. 실행 중인 다른 블루스택 창을 모두 닫으면 자동으로 설정을 변경하고 재시작합니다.",
-                    $"{VmNo(instance)}番の解像度・DPIが960×540・DPI 160ではありません。起動中の他のBlueStacksウィンドウをすべて閉じると自動で設定を変更して再起動します。",
-                    $"{VmHash(instance)} resolution/DPI is not 960×540 · DPI 160. Close other running BlueStacks windows so the macro can update settings and restart automatically."));
-            var notice=T(
-                $"{VmNo(instance)}번 해상도·DPI가 맞지 않아 960×540 · DPI 160으로 설정을 자동 변경하고 앱플레이어를 재시작한 뒤 시작합니다.",
-                $"{VmNo(instance)}番の解像度・DPIが合わないため、960×540・DPI 160に設定を自動変更してエミュレーターを再起動してから開始します。",
-                $"{VmHash(instance)} resolution/DPI did not match; updating settings to 960×540 · DPI 160, restarting the emulator, and then starting.");
-            AppendControlLog(instance,notice);
-            RecordNotice(instance,notice);
-            PendingWork[instance]=T("해상도·DPI 변경 후 재시작 중","解像度・DPI変更後に再起動中","Fixing resolution/DPI & restarting");
-            if(globalOn) EnsureGlobalInvite(dir,instance);
-            _=Task.Run(async()=>
+                "set"=>InviteCapacity(NewInvite(request.InviteCode!,request.InviteMode!,request.InviteLimit),0,queue),
+                "queue"=>InviteCapacity(active,used,[..queue,NewInvite(request.InviteCode!,request.InviteMode!,request.InviteLimit)]),
+                "clear"=>0,
+                _=>InviteCapacity(active,used,queue)
+            };
+            if(globalOn && request.Mode=="run" && request.Loops==0 && !pool.ExtraLoopWhenEmpty && capacity is <=0)
+                throw new InvalidOperationException(T("전역 초대 코드 목표 횟수가 모두 차거나 진행 중이에요.","グローバル招待コードの目標回数はすべて完了または進行中です。","All global invitation quotas are complete or already covered by running VMs."));
+            var args=BuildWorkerArgs(instance,request,capacity);
+            if(invite=="set") SaveInvite(instance,request.InviteCode!.Trim(),request.InviteMode!,request.InviteLimit);
+            else if(invite=="queue") EnqueueInvite(instance,request.InviteCode!.Trim(),request.InviteMode!,request.InviteLimit);
+            else if(invite=="clear") ClearAllInvites(instance);
+            if(!await IsVmRunning(instance))
             {
-                try
+                if(!request.BootVm) throw new InvalidOperationException(T($"{VmNo(instance)}번 VM이 꺼져 있습니다. 'VM 켜고 시작'을 선택하거나 먼저 VM을 켜세요.",$"{VmNo(instance)}番のVMがオフです。「オフのVMは起動して開始」を選ぶか、先にVMを起動してください。",$"{VmHash(instance)} VM is off. Turn on 'Boot VMs that are off' or start the VM first."));
+                PendingWork[instance]=T("VM 부팅 대기 중","VM起動待ち","Waiting for VM boot");
+                if(globalOn) { EnsureGlobalInvite(dir,instance); globalAssigned=true; }
+                keepPending=true;
+                _=Task.Run(async()=>
                 {
-                    await QuitVm(instance);
-                    await BootVm(instance);
-                    if(request.Mode!="run")
+                    try { await BootVm(instance); SpawnWorker(instance,args); }
+                    catch(Exception ex)
                     {
-                        await Run(AdbOf(instance),"-s",SerialOf(instance),"shell",$"monkey -p {Package} -c android.intent.category.LAUNCHER 1");
-                        await Task.Delay(3000);
+                        if(globalOn) WithInviteLock(dir,()=>{ if(ReadInviteSetting(dir) is { Global: true } g && ActiveInviteUses(dir,g)==0) File.Delete(Path.Combine(dir,InviteFile)); return 0; });
+                        AppendControlLog(instance,T("VM 부팅 후 시작 실패: ","VM起動後の開始に失敗: ","Start after VM boot failed: ")+ex.Message);
                     }
-                    SpawnWorker(instance,args);
-                }
-                catch(Exception ex) { AppendControlLog(instance,T("해상도 변경 및 재시작 후 시작 실패: ","解像度変更・再起動後の開始に失敗: ","Start after resolution fix failed: ")+ex.Message); }
-                finally { PendingWork.TryRemove(instance,out _); }
-            });
-            return notice;
+                    finally { PendingWork.TryRemove(instance,out _); }
+                });
+                return T($"{VmNo(instance)}번 VM을 켜는 중입니다. 부팅이 끝나면 자동으로 시작합니다.",$"{VmNo(instance)}番のVMを起動中です。起動が終わると自動で開始します。",$"Booting {VmHash(instance)} VM. The macro starts when it is ready.");
+            }
+            await ConnectVm(instance);
+            if(!await LiveResolutionOk(instance))
+            {
+                if(!FixesSettings(instance))
+                    throw new InvalidOperationException(T(
+                        $"{VmNo(instance)}번 해상도·DPI가 960×540 · DPI 160이 아닙니다. 실행 중인 다른 블루스택 창을 모두 닫으면 자동으로 설정을 변경하고 재시작합니다.",
+                        $"{VmNo(instance)}番の解像度・DPIが960×540・DPI 160ではありません。起動中の他のBlueStacksウィンドウをすべて閉じると自動で設定を変更して再起動します。",
+                        $"{VmHash(instance)} resolution/DPI is not 960×540 · DPI 160. Close other running BlueStacks windows so the macro can update settings and restart automatically."));
+                var notice=T(
+                    $"{VmNo(instance)}번 해상도·DPI가 맞지 않아 960×540 · DPI 160으로 설정을 자동 변경하고 앱플레이어를 재시작한 뒤 시작합니다.",
+                    $"{VmNo(instance)}番の解像度・DPIが合わないため、960×540・DPI 160に設定を自動変更してエミュレーターを再起動してから開始します。",
+                    $"{VmHash(instance)} resolution/DPI did not match; updating settings to 960×540 · DPI 160, restarting the emulator, and then starting.");
+                AppendControlLog(instance,notice);
+                RecordNotice(instance,notice);
+                PendingWork[instance]=T("해상도·DPI 변경 후 재시작 중","解像度・DPI変更後に再起動中","Fixing resolution/DPI & restarting");
+                if(globalOn) { EnsureGlobalInvite(dir,instance); globalAssigned=true; }
+                keepPending=true;
+                _=Task.Run(async()=>
+                {
+                    try
+                    {
+                        await QuitVm(instance);
+                        await BootVm(instance);
+                        if(request.Mode!="run")
+                        {
+                            await Run(AdbOf(instance),"-s",SerialOf(instance),"shell",$"monkey -p {Package} -c android.intent.category.LAUNCHER 1");
+                            await Task.Delay(3000);
+                        }
+                        SpawnWorker(instance,args);
+                    }
+                    catch(Exception ex)
+                    {
+                        if(globalOn) WithInviteLock(dir,()=>{ if(ReadInviteSetting(dir) is { Global: true } g && ActiveInviteUses(dir,g)==0) File.Delete(Path.Combine(dir,InviteFile)); return 0; });
+                        AppendControlLog(instance,T("해상도 변경 및 재시작 후 시작 실패: ","解像度変更・再起動後の開始に失敗: ","Start after resolution fix failed: ")+ex.Message);
+                    }
+                    finally { PendingWork.TryRemove(instance,out _); }
+                });
+                return notice;
+            }
+            if(globalOn) { EnsureGlobalInvite(dir,instance); globalAssigned=true; }
+            var pid=SpawnWorker(instance,args);
+            return T($"{VmNo(instance)}번 시작 (PID {pid})",$"{VmNo(instance)}番を開始 (PID {pid})",$"Started {VmHash(instance)} (PID {pid})");
         }
-        if(globalOn) EnsureGlobalInvite(dir,instance);
-        var pid=SpawnWorker(instance,args);
-        return T($"{VmNo(instance)}번 시작 (PID {pid})",$"{VmNo(instance)}番を開始 (PID {pid})",$"Started {VmHash(instance)} (PID {pid})");
+        catch
+        {
+            if(globalAssigned && !keepPending)
+                WithInviteLock(dir,()=>{ if(ReadInviteSetting(dir) is { Global: true } g && ActiveInviteUses(dir,g)==0) File.Delete(Path.Combine(dir,InviteFile)); return 0; });
+            throw;
+        }
+        finally
+        {
+            if(!keepPending) PendingWork.TryRemove(instance,out _);
+        }
     }
 
     static int SpawnWorker(int instance,List<string> args)
@@ -940,7 +980,7 @@ internal static partial class Program
                         await CheckTurnedOnVm(instance);
                         if(await IsVmRunning(instance)) try { await MeasureUsage(instance); } catch { }
                         // Workers advance their own queue; this keeps idle instances current after a code is used up.
-                        if(!IsWorkerRunning(instance) && !PendingWork.ContainsKey(instance))
+                        if(!IsWorkerStartingOrRunning(instance))
                         {
                             var dir=ArtifactsDir(instance);
                             if(RetireUsedInvite(dir)!=null) AppendControlLog(instance,T("다 쓴 초대 코드를 지웠어요.","使い切った招待コードを消しました。","Cleared a used-up invitation code."));

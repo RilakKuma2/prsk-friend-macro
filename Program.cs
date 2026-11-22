@@ -226,12 +226,15 @@ internal static partial class Program
                             throw new Exception($"Repeating {LoopTotal} loops needs at least {LoopTotal-1} invitation registration(s) in artifacts/invite.json (saved capacity + 1). No changes made.");
                     }
                 }
-                if(!RefreshInviteCode()) Console.WriteLine("No invitation code yet; artifacts/invite.json is checked again when the invitation step is reached.");
             }
             var needsLock=args[0] is "run" or "register-invite" or "close-rewards" or "tutorial" or "stage" or "resume" or "reset" or "restore" or "record" or "tap" or "swipe" or "skip-gacha" or "read-story" or "select-memories" or "prepare" or "exit-area-chat";
             // File locking survives async thread changes (a named Mutex is thread-affine).
             using var controlLock=needsLock?new FileStream("instance.lock",FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None):null;
             Directory.CreateDirectory("artifacts");
+            if(args.FirstOrDefault() is "run" or "tutorial" or "stage")
+            {
+                if(!RefreshInviteCode()) Console.WriteLine("No invitation code yet; artifacts/invite.json is checked again when the invitation step is reached.");
+            }
             if(args[0]=="prepare") { await PrepareInstance(); return 0; }
             if(args[0] is "run" or "tutorial" or "stage" or "resume" or "register-invite") await EnsureResolution(args[0] is "tutorial" or "stage" or "register-invite");
             var timingCommand=args[0] is "run" or "tutorial" or "stage" or "resume";
@@ -294,7 +297,7 @@ internal static partial class Program
         // A stop asked from the panel is not a failure: it is logged without the exception, so the card does not show one.
         catch(OperationCanceledException ex) when(StopRequested || File.Exists("artifacts/macro.stop")) { if(args.FirstOrDefault() is "run" or "tutorial" or "stage" or "resume") FinishTimingTurn("stopped"); Console.WriteLine(ex.Message.StartsWith("Stopped")?ex.Message:"Stopped: "+ex.Message); return 1; }
         catch(Exception ex) { if(args.FirstOrDefault() is "run" or "tutorial" or "stage" or "resume") FinishTimingTurn("failed"); if(HasCurrentFrame) SaveCurrentEvidence("artifacts/error.webp"); Console.Error.WriteLine(ex.ToString()); return 1; }
-        finally { if(FrameSender!=null) await FrameSender.DisposeAsync(); CurrentFrames.Clear(); }
+        finally { if(FrameSender!=null) await FrameSender.DisposeAsync(); CurrentFrames.Clear(); if(args.FirstOrDefault() is "run" or "register-invite" or "tutorial" or "stage" or "resume") try { File.Delete("artifacts/worker.pid"); } catch { } }
     }
     static List<Step> StepsForStage(string name)
     {

@@ -295,6 +295,7 @@ select.field{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xml
 .invf.once .invlim{display:flex}
 .invdel{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;color:var(--text-3);flex:none}
 .invdel:hover{background:var(--fill);color:var(--red)}
+.invdel:disabled{opacity:.3;pointer-events:none}
 #invCur .invdel{width:28px;height:28px;border-radius:9px}
 .qrow b{font-weight:600;color:var(--text-2);max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ptag{padding:1px 7px;border-radius:6px;background:var(--accent-weak);color:var(--accent);font-weight:600;font-size:11.5px;flex:none}
@@ -789,7 +790,7 @@ function invField(sel,changed,max=10){
   root.querySelector('.invonce').onclick=()=>{f.once=!f.once;f.render()};
   root.querySelectorAll('.invlim button').forEach(b=>b.onclick=()=>{f.limit=Math.min(max,Math.max(1,f.limit+ +b.dataset.d));f.render()});
   if(num)num.addEventListener('input',()=>{const v=parseInt(num.value,10);if(!Number.isNaN(v)){f.limit=Math.min(max,Math.max(1,v));f.render()}});
-  const del=root.querySelector('.invdel');if(del)del.onclick=()=>{input.value='';f.cleared=true;f.render();input.focus()};
+  const del=root.querySelector('.invdel');if(del)del.onclick=()=>{if(del.disabled)return;input.value='';f.cleared=true;f.render();input.focus()};
   input.addEventListener('input',()=>{f.cleared=false;f.render()});
   return f;
 }
@@ -1016,6 +1017,7 @@ function renderLoop(){
 function renderInv(){
   const s=state.inv,input=$('#rInv input'),key=state.globalInvite?'전역 초대 코드 자동 배정 사용 중':(s.mixed&&!rInv.cleared?'인스턴스마다 지금 코드를 그대로 써요':'영문/숫자 15자 · 비워두면 초대 없이 진행');
   input.setAttribute('data-ko-placeholder',key);input.placeholder=t(key);
+  $('#rInv .invdel').disabled=state.globalInvite;
   const queued=state.targets.reduce((a,n)=>a+(cur(n)?.queueCount||0),0);
   $('#invNow').textContent=state.globalInvite?'':(s.mixed?t('· 지금')+' '+state.targets.map(n=>{const v=cur(n)?.invite;return `${nth(n)} ${v?MODE[v.mode]:t('없음')}`}).join(', '):queued?t('· 대기열 {0}개',queued):'');
   if(state.mode==='run')renderLoop();

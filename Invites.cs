@@ -251,10 +251,31 @@ internal static partial class Program
                     if(RepeatBlocker()!=null) throw new Exception("Auto-loop should allow 1 extra loop when ExtraLoopWhenEmpty is true.");
                 }
                 finally { Directory.SetCurrentDirectory(origCwd); LoopTotal=origLoopTotal; Instance=origInst; }
+                // Verify 5 simultaneous starts with limit 1 + limit 1 never over-assign any code (even before instance.lock is opened).
+                lock(InstancesLock) InstanceCache=(DateTime.UtcNow.AddMinutes(5),new Dictionary<int,string> { [1]="VM0",[2]="VM1",[3]="VM2",[4]="VM3",[5]="VM4" });
+                foreach(var idx in new[]{1,2,3,4,5}) Directory.CreateDirectory(Path.Combine(ArtifactsDir(idx),"invites"));
+                WriteGlobalPool(new GlobalPoolFile(true,[
+                    new GlobalPoolItem("CONCURAAAAAAAA1","once",1,t0),
+                    new GlobalPoolItem("CONCURBBBBBBBB2","once",1,t0)
+                ],ExtraLoopWhenEmpty:true));
+                var livePid=Environment.ProcessId.ToString();
+                var assignedCodes=new List<string?>();
+                foreach(var idx in new[]{1,2,3,4,5})
+                {
+                    PendingWork[idx]="starting";
+                    var chosen=EnsureGlobalInvite(ArtifactsDir(idx),idx);
+                    assignedCodes.Add(chosen?.Code);
+                    // Simulate SpawnWorker writing live worker.pid right before PendingWork is cleared.
+                    File.WriteAllText(Path.Combine(ArtifactsDir(idx),"worker.pid"),livePid);
+                    PendingWork.TryRemove(idx,out _);
+                }
+                var s5=ComputeGlobalPoolStats(ReadGlobalPool());
+                if(assignedCodes.Count(c=>c=="CONCURAAAAAAAA1")!=1 || assignedCodes.Count(c=>c=="CONCURBBBBBBBB2")!=1 || s5[0].Projected!=1 || s5[1].Projected!=1)
+                    throw new Exception($"Concurrent 5-VM dispatch over-allocated: {string.Join(',',assignedCodes.Select(c=>c??"null"))}");
             }
             finally
             {
-                PendingWork.TryRemove(1,out _);
+                foreach(var idx in new[]{1,2,3,4,5}) PendingWork.TryRemove(idx,out _);
                 lock(InstancesLock) InstanceCache=origCache;
                 ControlRoot=origRoot;
             }
@@ -309,7 +330,7 @@ internal static partial class Program
         var runningVms=new Dictionary<string,List<int>>();
         foreach(var n in AllowedInstances.Keys.Where(n=>n!=excludeInstance))
         {
-            if(!IsWorkerRunning(n) && !PendingWork.ContainsKey(n)) continue;
+            if(!IsWorkerStartingOrRunning(n)) continue;
             var dir=ArtifactsDir(n);
             if(ReadInviteSetting(dir) is not { } s) continue;
             var used=ActiveInviteUses(dir,s);
@@ -349,7 +370,14 @@ internal static partial class Program
             if(current.Global && pool.Items.FirstOrDefault(i=>i.Code==current.Code) is { } match)
             {
                 var done=GlobalCodeDone(match,allRecords);
-                if(match.Mode=="permanent" || (match.Limit is { } lim && done<lim)) return current;
+                if(match.Mode=="permanent") return current;
+                if(match.Limit is { } lim && done<lim)
+                {
+                    var ahead=AllowedInstances.Keys.Count(n=>n!=instance && IsWorkerStartingOrRunning(n)
+                        && ReadInviteSetting(ArtifactsDir(n)) is { } s && s.Code==match.Code && ActiveInviteUses(ArtifactsDir(n),s)==0
+                        && (s.Updated<current.Updated || (s.Updated==current.Updated && n<instance)));
+                    if(done+ahead<lim) return current;
+                }
             }
         }
         var stats=ComputeGlobalPoolStats(pool,excludeInstance:instance);
