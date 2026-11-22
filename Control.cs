@@ -117,6 +117,8 @@ internal static partial class Program
         var stages=LoadStagesCached();
         var list=new List<InstanceStatus>();
         var owners=InviteOwners();
+        var globalPool=ReadGlobalPool();
+        var globalCap=globalPool.Enabled?GlobalPoolCapacity():null;
         foreach(var (instance,name) in AllowedInstances)
         {
             var dir=ArtifactsDir(instance);
@@ -133,12 +135,13 @@ internal static partial class Program
             var invite=ReadInviteSetting(dir); var queue=ReadInviteQueue(dir);
             var uses=invite==null?0:ActiveInviteUses(dir,invite);
             var notice=InstanceNotices.TryGetValue(instance,out var n) && DateTimeOffset.UtcNow-n.At<TimeSpan.FromSeconds(15)?n:(0,DateTimeOffset.MinValue,(string?)null);
+            var cap=globalPool.Enabled?GlobalPoolCapacity(excludeInstance:instance):InviteCapacity(invite,uses,queue);
             list.Add(new InstanceStatus(instance,name,vm,IsWorkerRunning(instance),PendingWork.GetValueOrDefault(instance)??ProvisionPending(instance),
                 stage,stages.FirstOrDefault(s=>s.Name==stage) is { } stageInfo?StageTitle(stageInfo):null,Str(progress,"Status"),step,Str(checkpoint,"Status"),updated,
                 step==null?-1:flow.FindIndex(s=>s.Name==step),flow.Count,last,
                 log.Any(l=>l.Contains("Exception") || l.Contains("Timed out")),CurrentFrames.Read(instance)!=null,
                 invite,uses,invite==null?null:InviteLimit(invite),invite==null?null:owners.GetValueOrDefault(invite.Code),queue.Count,
-                InviteCapacity(invite,uses,queue),InviteCapacity(null,0,queue),CurrentLoopInvite(dir),ReadLoop(dir),IsLocked(instance),RunningUnit(instance),notice.Item1,notice.Item3));
+                cap,globalPool.Enabled?globalCap:InviteCapacity(null,0,queue),CurrentLoopInvite(dir),ReadLoop(dir),IsLocked(instance),RunningUnit(instance),notice.Item1,notice.Item3));
         }
         return list;
     }
@@ -230,7 +233,8 @@ internal static partial class Program
         else if(invite is not ("keep" or "clear")) throw new ArgumentException(T("초대 코드 설정이 올바르지 않습니다.","招待コードの設定が正しくありません。","Invalid invitation code setting."));
         var dir=ArtifactsDir(instance);
         var active=ReadInviteSetting(dir); var queue=ReadInviteQueue(dir); var used=active==null?0:ActiveInviteUses(dir,active);
-        var capacity=invite switch
+        var globalOn=ReadGlobalPool().Enabled && invite=="keep";
+        var capacity=globalOn?GlobalPoolCapacity(excludeInstance:instance):invite switch
         {
             "set"=>InviteCapacity(NewInvite(request.InviteCode!,request.InviteMode!,request.InviteLimit),0,queue),
             "queue"=>InviteCapacity(active,used,[..queue,NewInvite(request.InviteCode!,request.InviteMode!,request.InviteLimit)]),
@@ -245,6 +249,7 @@ internal static partial class Program
         {
             if(!request.BootVm) throw new InvalidOperationException(T($"{VmNo(instance)}번 VM이 꺼져 있습니다. 'VM 켜고 시작'을 선택하거나 먼저 VM을 켜세요.",$"{VmNo(instance)}番のVMがオフです。「オフのVMは起動して開始」を選ぶか、先にVMを起動してください。",$"{VmHash(instance)} VM is off. Turn on 'Boot VMs that are off' or start the VM first."));
             PendingWork[instance]=T("VM 부팅 대기 중","VM起動待ち","Waiting for VM boot");
+            if(globalOn) EnsureGlobalInvite(dir,instance);
             _=Task.Run(async()=>
             {
                 try { await BootVm(instance); SpawnWorker(instance,args); }
@@ -268,6 +273,7 @@ internal static partial class Program
             AppendControlLog(instance,notice);
             RecordNotice(instance,notice);
             PendingWork[instance]=T("해상도·DPI 변경 후 재시작 중","解像度・DPI変更後に再起動中","Fixing resolution/DPI & restarting");
+            if(globalOn) EnsureGlobalInvite(dir,instance);
             _=Task.Run(async()=>
             {
                 try
@@ -286,6 +292,7 @@ internal static partial class Program
             });
             return notice;
         }
+        if(globalOn) EnsureGlobalInvite(dir,instance);
         var pid=SpawnWorker(instance,args);
         return T($"{VmNo(instance)}번 시작 (PID {pid})",$"{VmNo(instance)}番を開始 (PID {pid})",$"Started {VmHash(instance)} (PID {pid})");
     }
@@ -511,17 +518,36 @@ internal static partial class Program
     static object GetInvite(int instance)
     {
         RequireInstance(instance);
-        var history=ReadInviteHistory(ArtifactsDir(instance));
-        history.Reverse();
         var dir=ArtifactsDir(instance);
         var setting=ReadInviteSetting(dir);
         var owners=InviteOwners();
+        var history=AllInviteEntries().Where(e=>e.Instance==instance).ToList();
         return new
         {
             Setting=setting,Uses=setting==null?0:ActiveInviteUses(dir,setting),Limit=setting==null?null:InviteLimit(setting),
             Owner=setting==null?null:owners.GetValueOrDefault(setting.Code),
+            CanReorderActive=CanReorderActiveInvite(instance,dir,setting),
             Queue=ReadInviteQueue(dir).Select(q=>new { q.Code,q.Mode,Limit=InviteLimit(q),Owner=owners.GetValueOrDefault(q.Code) }),
             History=history
+        };
+    }
+
+    static object GetGlobalInviteHistory(string? query)
+    {
+        var entries=AllInviteEntries();
+        var codes=InviteCodeSummaries(entries);
+        var q=query?.Trim();
+        var filtered=string.IsNullOrEmpty(q)?entries:entries.Where(e=>
+            e.Code.Contains(q,StringComparison.OrdinalIgnoreCase)
+            || (e.Nickname?.Contains(q,StringComparison.OrdinalIgnoreCase)??false)
+            || e.VmName.Contains(q,StringComparison.OrdinalIgnoreCase)
+            || VmNo(e.Instance).ToString()==q).ToList();
+        return new
+        {
+            Total=filtered.Count,
+            Registered=filtered.Count(e=>e.Result=="registered"),
+            Codes=codes,
+            History=filtered
         };
     }
 
@@ -583,6 +609,42 @@ internal static partial class Program
         if(!removed) throw new ArgumentException(T("대기열에 없는 항목이에요.","待機列にない項目です。","That item is not in the queue."));
         AppendControlLog(instance,T("초대 코드 대기열에서 삭제","招待コードを待機列から削除","Invitation code removed from queue"));
         return T($"{VmNo(instance)}번 대기열에서 뺐어요.",$"{VmNo(instance)}番の待機列から外しました。",$"Removed from {VmHash(instance)} queue.");
+    }
+
+    static async Task<string> ReorderInvite(int instance,int from,int to)
+    {
+        RequireInstance(instance);
+        if(from==to) return T("순서가 그대로예요.","順番はそのままです。","Order unchanged.");
+        var dir=ArtifactsDir(instance);
+        var movedActive=WithInviteLock(dir,()=>
+        {
+            var setting=ReadInviteSetting(dir);
+            var queue=ReadInviteQueue(dir);
+            if(from<-1 || from>=queue.Count || to<-1 || to>=queue.Count)
+                throw new ArgumentException(T("대기열에 없는 항목이에요.","待機列にない項目です。","That item is not in the queue."));
+            if(from==-1 || to==-1)
+            {
+                if(!CanReorderActiveInvite(instance,dir,setting))
+                    throw new InvalidOperationException(T("지금 쓰는 코드는 이미 사용 중이거나 입력이 진행 중이라 바꿀 수 없어요.","使用中のコードはすでに使用済みまたは入力中のため入れ替えられません。","The active code is already in use or being entered and cannot be moved."));
+                // Combined slots: index 0 is active (-1), indices 1..queue.Count are queued items 0..queue.Count-1.
+                var combined=new List<InviteSetting>(queue.Count+1) { setting! };
+                combined.AddRange(queue);
+                var item=combined[from+1];
+                combined.RemoveAt(from+1);
+                combined.Insert(to+1,item);
+                WriteInviteSetting(dir,combined[0] with { Updated=DateTimeOffset.Now });
+                WriteInviteQueue(dir,combined.Skip(1).ToList());
+                return true;
+            }
+            var moved=queue[from];
+            queue.RemoveAt(from);
+            queue.Insert(to,moved);
+            WriteInviteQueue(dir,queue);
+            return false;
+        });
+        AppendControlLog(instance,T("초대 코드 순서를 바꿨어요.","招待コードの順番を変更しました。","Reordered the invitation code queue."));
+        if(movedActive) await TryAutoInvite(instance);
+        return T($"{VmNo(instance)}번 초대 코드 순서를 바꿨어요.",$"{VmNo(instance)}番の招待コードの順番を変更しました。",$"Reordered invitation codes for {VmHash(instance)}.");
     }
 
     // Clearing the active code moves the next queued code up.
@@ -688,6 +750,163 @@ internal static partial class Program
         });
     }
 
+    static bool IsAwaitingInvitation(string dir)
+    {
+        var checkpoint=new[]{"current-step.json","current-step.pending.json"}.Select(f=>Path.Combine(dir,f))
+            .Where(File.Exists).OrderByDescending(File.GetLastWriteTimeUtc).Select(ReadJson).FirstOrDefault();
+        return Str(checkpoint,"Step")=="event-stories-complete" && Str(checkpoint,"Status")=="awaiting-invitation";
+    }
+
+    static object GetGlobalPoolStatus()
+    {
+        var pool=ReadGlobalPool();
+        var stats=ComputeGlobalPoolStats(pool);
+        var activeRuns=stats.SelectMany(s=>s.RunningVms.Select(vm=>new
+        {
+            Instance=vm,
+            VmName=AllowedInstances.GetValueOrDefault(vm)??VmHash(vm),
+            s.Code,
+            s.Owner,
+            s.Done,
+            s.InFlight,
+            s.Projected,
+            s.Limit,
+            s.Mode
+        })).OrderBy(x=>x.Instance).ToList();
+        return new { pool.Enabled,Items=stats,ActiveRuns=activeRuns };
+    }
+
+    static async Task<string> SetGlobalPoolEnabled(bool enabled)
+    {
+        WithGlobalInviteLock(()=>
+        {
+            var pool=ReadGlobalPool();
+            WriteGlobalPool(pool with { Enabled=enabled });
+            return 0;
+        });
+        if(enabled)
+        {
+            foreach(var instance in AllowedInstances.Keys)
+            {
+                var dir=ArtifactsDir(instance);
+                if(!IsWorkerRunning(instance) && !PendingWork.ContainsKey(instance) && IsAwaitingInvitation(dir))
+                {
+                    EnsureGlobalInvite(dir,instance);
+                    if(await TryAutoInvite(instance) is { } msg) AppendControlLog(instance,msg);
+                }
+            }
+            return T("전역 초대 코드 자동 배정을 켰어요.","グローバル招待コードの自動割り当てをオンにしました。","Global invitation pool enabled.");
+        }
+        foreach(var instance in AllowedInstances.Keys)
+        {
+            var dir=ArtifactsDir(instance);
+            if(!IsWorkerRunning(instance) && !PendingWork.ContainsKey(instance))
+                WithInviteLock(dir,()=>{ if(ReadInviteSetting(dir) is { Global: true } g && ActiveInviteUses(dir,g)==0) File.Delete(Path.Combine(dir,InviteFile)); return 0; });
+        }
+        return T("전역 초대 코드 자동 배정을 껐어요. 인스턴스별 설정을 사용합니다.","グローバル招待コードの自動割り当てをオフにしました。インスタンスごとの設定を使います。","Global invitation pool disabled. Using per-instance settings.");
+    }
+
+    static void ValidateGlobalInvite(string? code,string? mode,int? limit)
+    {
+        code=code?.Trim();
+        if(!ValidInviteCode(code)) throw new ArgumentException(T("초대 코드는 영문/숫자 15자여야 합니다.","招待コードは英数字15文字です。","Invitation codes are 15 letters or digits."));
+        if(mode is not ("once" or "permanent")) throw new ArgumentException(T("일회용 또는 영구를 선택하세요.","使い捨てか永久を選んでください。","Choose single-use or permanent."));
+        if(mode=="once" && limit is <1 or >MaxGlobalOnceUses) throw new ArgumentException(T($"횟수는 1~{MaxGlobalOnceUses}회예요.",$"回数は1〜{MaxGlobalOnceUses}回です。",$"Uses must be 1 to {MaxGlobalOnceUses}."));
+    }
+
+    static async Task<string> AddGlobalPoolItem(string? code,string? mode,int? limit)
+    {
+        ValidateGlobalInvite(code,mode,limit);
+        var clean=code!.Trim();
+        var pos=WithGlobalInviteLock(()=>
+        {
+            var pool=ReadGlobalPool();
+            if(pool.Items.Any(i=>i.Code.Equals(clean,StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidOperationException(T("이미 전역 목록에 있는 코드예요. 횟수는 목록에서 조절하세요.","すでにグローバル一覧にあるコードです。回数は一覧から変更できます。","That code is already in the global list. Adjust its uses there."));
+            var next=pool.Items.ToList();
+            next.Add(new GlobalPoolItem(clean,mode!,mode=="once"?limit??1:null,DateTimeOffset.Now));
+            WriteGlobalPool(pool with { Items=next });
+            return next.Count;
+        });
+        if(ReadGlobalPool().Enabled)
+        {
+            foreach(var instance in AllowedInstances.Keys)
+            {
+                var dir=ArtifactsDir(instance);
+                if(!IsWorkerRunning(instance) && !PendingWork.ContainsKey(instance) && IsAwaitingInvitation(dir))
+                {
+                    EnsureGlobalInvite(dir,instance);
+                    if(await TryAutoInvite(instance) is { } msg) AppendControlLog(instance,msg);
+                }
+            }
+        }
+        return T($"전역 목록 {pos}순위에 추가했어요.",$"グローバル一覧の{pos}番目に追加しました。",$"Added to global list at #{pos}.");
+    }
+
+    static string RemoveGlobalPoolItem(int index)
+    {
+        WithGlobalInviteLock(()=>
+        {
+            var pool=ReadGlobalPool();
+            if(index<0 || index>=pool.Items.Count) throw new ArgumentException(T("목록에 없는 항목이에요.","一覧にない項目です。","That item is not in the list."));
+            var next=pool.Items.ToList();
+            next.RemoveAt(index);
+            WriteGlobalPool(pool with { Items=next });
+            return 0;
+        });
+        return T("전역 목록에서 지웠어요.","グローバル一覧から削除しました。","Removed from the global list.");
+    }
+
+    static async Task<string> SetGlobalPoolLimit(int index,int limit)
+    {
+        if(limit is <1 or >MaxGlobalOnceUses) throw new ArgumentException(T($"횟수는 1~{MaxGlobalOnceUses}회예요.",$"回数は1〜{MaxGlobalOnceUses}回です。",$"Uses must be 1 to {MaxGlobalOnceUses}."));
+        WithGlobalInviteLock(()=>
+        {
+            var pool=ReadGlobalPool();
+            if(index<0 || index>=pool.Items.Count) throw new ArgumentException(T("목록에 없는 항목이에요.","一覧にない項目です。","That item is not in the list."));
+            var cur=pool.Items[index];
+            if(cur.Mode!="once") throw new InvalidOperationException(T("영구 코드는 횟수 없이 계속 써요.","永久コードは回数なしで使い続けます。","Permanent codes have no use limit."));
+            var stats=ComputeGlobalPoolStats(pool);
+            var done=stats[index].Done;
+            if(limit<done) throw new ArgumentException(T($"이미 {done}번 완료됐어요.",$"すでに{done}回完了しています。",$"Already completed {done} times."));
+            var next=pool.Items.ToList();
+            next[index]=cur with { Limit=limit };
+            WriteGlobalPool(pool with { Items=next });
+            return 0;
+        });
+        if(ReadGlobalPool().Enabled)
+        {
+            foreach(var instance in AllowedInstances.Keys)
+            {
+                var dir=ArtifactsDir(instance);
+                if(!IsWorkerRunning(instance) && !PendingWork.ContainsKey(instance) && IsAwaitingInvitation(dir))
+                {
+                    EnsureGlobalInvite(dir,instance);
+                    if(await TryAutoInvite(instance) is { } msg) AppendControlLog(instance,msg);
+                }
+            }
+        }
+        return T($"목표 횟수를 {limit}회로 바꿨어요.",$"目標回数を{limit}回にしました。",$"Updated target uses to {limit}.");
+    }
+
+    static string ReorderGlobalPool(int from,int to)
+    {
+        WithGlobalInviteLock(()=>
+        {
+            var pool=ReadGlobalPool();
+            if(from<0 || from>=pool.Items.Count || to<0 || to>=pool.Items.Count)
+                throw new ArgumentException(T("목록에 없는 항목이에요.","一覧にない項目です。","That item is not in the list."));
+            if(from==to) return 0;
+            var next=pool.Items.ToList();
+            var item=next[from];
+            next.RemoveAt(from);
+            next.Insert(to,item);
+            WriteGlobalPool(pool with { Items=next });
+            return 0;
+        });
+        return T("전역 코드 우선순위를 바꿨어요.","グローバルコードの優先順位を変更しました。","Reordered global invitation priorities.");
+    }
+
     static void StartInviteWatcher()
     {
         if(Interlocked.Exchange(ref InviteWatcherStarted,1)==1) return;
@@ -697,16 +916,30 @@ internal static partial class Program
             {
                 // A setup job asks for the game file; the built-in browser fetches it.
                 try { var flag=Path.Combine(ProvisionDir,"need-game"); if(File.Exists(flag) && OpenGameDownload(File.ReadAllText(flag).Trim() is "qooapp"?"qooapp":"pjsekai")) File.Delete(flag); } catch { }
+                var globalOn=ReadGlobalPool().Enabled;
                 foreach(var instance in AllowedInstances.Keys)
                     try
                     {
                         await CheckTurnedOnVm(instance);
                         if(await IsVmRunning(instance)) try { await MeasureUsage(instance); } catch { }
                         // Workers advance their own queue; this keeps idle instances current after a code is used up.
-                        if(!IsWorkerRunning(instance))
+                        if(!IsWorkerRunning(instance) && !PendingWork.ContainsKey(instance))
                         {
-                            if(RetireUsedInvite(ArtifactsDir(instance))!=null) AppendControlLog(instance,T("다 쓴 초대 코드를 지웠어요.","使い切った招待コードを消しました。","Cleared a used-up invitation code."));
-                            if(PromoteQueuedInvite(ArtifactsDir(instance)) is { } next) AppendControlLog(instance,T($"대기열의 다음 초대 코드로 바꿨어요 ({InviteLabel(next)}).",$"待機列の次の招待コードに切り替えました ({InviteLabel(next)})。",$"Switched to the next queued invitation code ({InviteLabel(next)})."));
+                            var dir=ArtifactsDir(instance);
+                            if(RetireUsedInvite(dir)!=null) AppendControlLog(instance,T("다 쓴 초대 코드를 지웠어요.","使い切った招待コードを消しました。","Cleared a used-up invitation code."));
+                            if(globalOn)
+                            {
+                                if(IsAwaitingInvitation(dir))
+                                {
+                                    var had=ReadInviteSetting(dir)?.Code;
+                                    if(EnsureGlobalInvite(dir,instance) is { } assigned && assigned.Code!=had)
+                                        AppendControlLog(instance,T($"전역 초대 코드를 배정했어요 ({assigned.Code}).",$"グローバル招待コードを割り当てました ({assigned.Code})。",$"Assigned global invitation code ({assigned.Code})."));
+                                }
+                                else if(ReadInviteSetting(dir) is { Global: true } stale && ActiveInviteUses(dir,stale)==0
+                                    && !(CurrentLoopInvite(dir) is { } cli && cli.Code==stale.Code && cli.Time>=stale.Updated && cli.Result=="confirming"))
+                                    WithInviteLock(dir,()=>{ File.Delete(Path.Combine(dir,InviteFile)); return 0; });
+                            }
+                            else if(PromoteQueuedInvite(dir) is { } next) AppendControlLog(instance,T($"대기열의 다음 초대 코드로 바꿨어요 ({InviteLabel(next)}).",$"待機列の次の招待コードに切り替えました ({InviteLabel(next)})。",$"Switched to the next queued invitation code ({InviteLabel(next)})."));
                         }
                         if(await TryAutoInvite(instance) is { } message) AppendControlLog(instance,message);
                     }

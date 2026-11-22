@@ -118,7 +118,7 @@ internal static partial class Program
         api.MapPost("/language",(LanguageRequest request)=>{ SetLanguage(request.Language); return Results.Json(new { Language }); });
         api.MapPost("/tab",(TabRequest request)=>{ SetTab(request.Emulator); return Results.Json(new { Tab=SavedTab }); });
         api.MapPost("/skip-gacha",(SkipGachaRequest request)=>{ SetSkipGacha(request.SkipGacha); return Results.Json(new { SkipGacha=ReadSkipGacha() }); });
-        api.MapGet("/instances",async(HttpContext context)=>{ context.Response.Headers["X-Skip-Gacha"]=ReadSkipGacha()?"1":"0"; return Results.Json(await GetStatuses()); });
+        api.MapGet("/instances",async(HttpContext context)=>{ context.Response.Headers["X-Skip-Gacha"]=ReadSkipGacha()?"1":"0"; context.Response.Headers["X-Global-Invite"]=ReadGlobalPool().Enabled?"1":"0"; return Results.Json(await GetStatuses()); });
         api.MapGet("/instances/{n:int}/log",(int n,int? lines)=>{ RequireInstance(n); return Results.Text(TailLog(n,Math.Clamp(lines??300,10,3000))); });
         api.MapGet("/instances/{n:int}/timing",(int n)=>{ RequireInstance(n); var data=ReadTiming(ArtifactsDir(n)); return Results.Json(new { Now=DateTimeOffset.Now,data.Current,data.History }); });
         api.MapGet("/instances/{n:int}/frame",(int n,HttpContext context)=>{ RequireInstance(n); context.Response.Headers.CacheControl="no-store"; var bytes=LastFrame(n); return bytes==null?Results.NotFound():Results.Bytes(bytes,"image/png"); });
@@ -134,12 +134,20 @@ internal static partial class Program
             return Ok(await ManualInput(n,$"input tap {point.X} {point.Y}"));
         });
         api.MapPost("/instances/{n:int}/key/{key}",async(int n,string key)=>Ok(await ManualInput(n,"input keyevent "+(key switch { "back"=>4,"home"=>3,"recent"=>187,_=>throw new ArgumentException(T("알 수 없는 키","不明なキー","Unknown key")) }))));
+        api.MapGet("/invites/history",(string? q)=>Results.Json(GetGlobalInviteHistory(q)));
+        api.MapGet("/invites/global",()=>Results.Json(GetGlobalPoolStatus()));
+        api.MapPost("/invites/global/toggle",async(GlobalToggleRequest request)=>Ok(await SetGlobalPoolEnabled(request.Enabled)));
+        api.MapPost("/invites/global/add",async(InviteRequest request)=>Ok(await AddGlobalPoolItem(request.Code,request.Mode,request.Limit)));
+        api.MapPost("/invites/global/remove",(QueueRemoveRequest request)=>Ok(RemoveGlobalPoolItem(request.Index)));
+        api.MapPost("/invites/global/limit",async(InviteLimitRequest request)=>Ok(await SetGlobalPoolLimit(request.Index,request.Limit)));
+        api.MapPost("/invites/global/reorder",(InviteReorderRequest request)=>Ok(ReorderGlobalPool(request.From,request.To)));
         api.MapGet("/instances/{n:int}/invite",(int n)=>Results.Json(GetInvite(n)));
         api.MapPost("/instances/{n:int}/invite",async(int n,InviteRequest request)=>Ok(await SetInvite(n,request.Code,request.Mode,request.Limit)));
         api.MapPost("/instances/{n:int}/invite/queue",async(int n,InviteRequest request)=>Ok(await QueueInvite(n,request.Code,request.Mode,request.Limit)));
         api.MapPost("/instances/{n:int}/loop",(int n,LoopRequest request)=>Ok(SetLoopTotal(n,request.Total)));
         api.MapPost("/instances/{n:int}/invite/limit",(int n,InviteLimitRequest request)=>Ok(SetInviteLimit(n,request.Index,request.Limit)));
         api.MapPost("/instances/{n:int}/invite/queue/remove",(int n,QueueRemoveRequest request)=>Ok(RemoveQueuedInvite(n,request.Index)));
+        api.MapPost("/instances/{n:int}/invite/reorder",async(int n,InviteReorderRequest request)=>Ok(await ReorderInvite(n,request.From,request.To)));
         api.MapPost("/instances/{n:int}/invite/clear",(int n)=>Ok(ClearInvite(n)));
         api.MapGet("/instances/{n:int}/invites/{file}",(int n,string file)=>InviteImage(n,file) is { } bytes?Results.Bytes(bytes,bytes.AsSpan().StartsWith("RIFF"u8)?"image/webp":"image/png"):Results.NotFound());
         api.MapPost("/arrange",async()=>await VmArrange()?Ok(T("창을 정렬했습니다.","ウィンドウを整列しました。","Arranged the windows."))
@@ -172,6 +180,8 @@ internal static partial class Program
     record QueueRemoveRequest(int Index);
     record LoopRequest(int Total);
     record InviteLimitRequest(int Index,int Limit);
+    record InviteReorderRequest(int From,int To);
+    record GlobalToggleRequest(bool Enabled);
     record LockRequest(bool Locked);
     static IResult Ok(string message)=>Results.Json(new { message });
 }
