@@ -33,10 +33,13 @@ internal static partial class Program
         catch { return null; }
     }
 
+    // An invitation counts as completed only once its mission reward screen was captured.
+    static bool IsInviteCompleted(InviteRecord r)=>r.Result=="completed" || (r.Result=="registered" && !string.IsNullOrEmpty(r.Rewards));
+
     // Registrations a code serves: global assignments reserve 1 registration at a time so the next loop re-checks pool priorities.
     static int? InviteLimit(InviteSetting setting)=>setting.Global?1:setting.Mode=="once"?Math.Clamp(setting.Limit??1,1,MaxOnceUses):null;
-    // Registrations made in this instance since the code became active.
-    static int ActiveInviteUses(string artifacts,InviteSetting setting)=>ReadInviteHistory(artifacts).Count(r=>r.Code==setting.Code && r.Result=="registered" && r.Time>=setting.Updated);
+    // Completed invitations made in this instance since the code became active.
+    static int ActiveInviteUses(string artifacts,InviteSetting setting)=>ReadInviteHistory(artifacts).Count(r=>r.Code==setting.Code && IsInviteCompleted(r) && r.Time>=setting.Updated);
     // Registrations the active code and the queue still allow: null once a permanent code is among them.
     static int? InviteCapacity(InviteSetting? active,int used,IEnumerable<InviteSetting> queue)
     {
@@ -67,7 +70,7 @@ internal static partial class Program
         var orders=new int?[all.Count];
         for(var i=0;i<all.Count;i++)
         {
-            if(all[i].Record.Result=="registered" && ValidInviteCode(all[i].Record.Code))
+            if(IsInviteCompleted(all[i].Record) && ValidInviteCode(all[i].Record.Code))
             {
                 var next=counts.GetValueOrDefault(all[i].Record.Code)+1;
                 counts[all[i].Record.Code]=next;
@@ -78,7 +81,8 @@ internal static partial class Program
         for(var i=all.Count-1;i>=0;i--)
         {
             var (inst,vmName,r)=all[i];
-            list.Add(new GlobalInviteEntry(inst,vmName,r.Time,r.Code,r.Mode,r.Nickname,r.Image,r.Result,r.Loop,r.Rewards,
+            var result=IsInviteCompleted(r)?"completed":r.Result;
+            list.Add(new GlobalInviteEntry(inst,vmName,r.Time,r.Code,r.Mode,r.Nickname,r.Image,result,r.Loop,r.Rewards,
                 orders[i],counts.GetValueOrDefault(r.Code)));
         }
         return list;
@@ -87,19 +91,19 @@ internal static partial class Program
     static List<InviteCodeSummary> InviteCodeSummaries(IReadOnlyList<GlobalInviteEntry> entries)
     {
         var owners=InviteOwners();
-        return entries.Where(e=>e.Result=="registered" && ValidInviteCode(e.Code))
+        return entries.Where(e=>e.Result=="completed" && ValidInviteCode(e.Code))
             .GroupBy(e=>e.Code)
             .Select(g=>new InviteCodeSummary(g.Key,owners.GetValueOrDefault(g.Key),g.Count(),g.Max(x=>x.Time)))
             .OrderByDescending(s=>s.LastTime)
             .ToList();
     }
 
-    // Active code can swap with queued codes only if it has not been registered yet and is not currently being entered.
+    // Active code can swap with queued codes only if it has not been entered/completed since activation and is not currently being entered.
     static bool CanReorderActiveInvite(int instance,string dir,InviteSetting? setting)
     {
         if(setting==null) return false;
         if(ActiveInviteUses(dir,setting)>0) return false;
-        if(CurrentLoopInvite(dir) is { } cli && cli.Code==setting.Code && cli.Time>=setting.Updated && cli.Result is "confirming" or "registered")
+        if(ReadInviteHistory(dir).Any(r=>r.Code==setting.Code && r.Time>=setting.Updated && r.Result is "confirming" or "registered" or "completed"))
             return false;
         if(IsWorkerRunning(instance))
         {
@@ -178,10 +182,10 @@ internal static partial class Program
             var start=DateTimeOffset.Now.AddMinutes(-5);
             WriteInviteSetting(dir,new InviteSetting("CHECKAAAAAAAAA1","once",start,2));
             WriteInviteQueue(dir,[new InviteSetting("CHECKBBBBBBBBB2","once",start),new InviteSetting("CHECKCCCCCCCCC3","permanent",start,5)]);
-            void Register(string code,int minutes)
+            void Register(string code,int minutes,string result="completed",string? rewards="reward.webp")
             {
                 var history=ReadInviteHistory(dir);
-                history.Add(new InviteRecord(DateTimeOffset.Now.AddMinutes(minutes),code,"",null,null,"registered"));
+                history.Add(new InviteRecord(DateTimeOffset.Now.AddMinutes(minutes),code,"",null,null,result,null,rewards));
                 WriteJsonAtomic(Path.Combine(dir,InviteHistoryFile),history);
             }
             string Active()=>ReadInviteSetting(dir) is { } s?$"{s.Code[..6]}({ActiveInviteUses(dir,s)}/{InviteLimit(s)?.ToString()??"∞"})":"none";
@@ -189,6 +193,9 @@ internal static partial class Program
             if(InviteCapacity(new InviteSetting("CHECKAAAAAAAAA1","once",start,2),1,[new InviteSetting("CHECKBBBBBBBBB2","once",start,3)])!=4) throw new Exception("Single-use capacity is not the remaining registrations.");
             Register("CHECKAAAAAAAAA1",-10);
             if(RetireUsedInvite(dir)!=null) throw new Exception("A registration before activation was counted.");
+            // Entered code without reward screenshot ("registered" with null Rewards) must NOT count as completed.
+            Register("CHECKAAAAAAAAA1",-1,"registered",null);
+            if(ActiveInviteUses(dir,ReadInviteSetting(dir)!)!=0) throw new Exception("An entered invite without reward screenshot was counted as completed.");
             Register("CHECKAAAAAAAAA1",-1);
             if(RetireUsedInvite(dir)!=null || PromoteQueuedInvite(dir)!=null) throw new Exception("Code retired before its limit: "+Active());
             Register("CHECKAAAAAAAAA1",-1);
@@ -203,7 +210,7 @@ internal static partial class Program
             var idleCode=new InviteSetting("CHECKDDDDDDDDD4","once",start,2);
             WriteInviteSetting(idleDir,idleCode);
             if(!CanReorderActiveInvite(-999,idleDir,idleCode)) throw new Exception("Idle unused active code should be reorderable.");
-            WriteJsonAtomic(Path.Combine(idleDir,InviteHistoryFile),new[]{new InviteRecord(DateTimeOffset.Now,"CHECKDDDDDDDDD4","once",null,null,"registered")});
+            WriteJsonAtomic(Path.Combine(idleDir,InviteHistoryFile),new[]{new InviteRecord(DateTimeOffset.Now,"CHECKDDDDDDDDD4","once",null,null,"registered",null,null)});
             if(CanReorderActiveInvite(-999,idleDir,idleCode)) throw new Exception("Already registered active code must not be reorderable.");
             // Verify global pool 1-use slot limit and saturation skip logic across instances.
             var origRoot=ControlRoot;
@@ -230,12 +237,25 @@ internal static partial class Program
                 if(stats1[0].Projected!=1 || stats1[0].Done!=0) throw new Exception($"Expected 1(0), got {stats1[0].Projected}({stats1[0].Done}).");
                 var second=EnsureGlobalInvite(art2,2);
                 if(second?.Code!="GLOBALBBBBBBBB2") throw new Exception("Global pool did not skip saturated priority #1 for VM 2.");
-                // Completing registration on VM 1 updates Done to 1 and retires VM 1's 1-use slot.
+                // Completing without reward screenshot keeps GLOBALAAAAAAAA1 uncompleted; completing with rewards updates Done to 1 and retires it.
                 PendingWork.TryRemove(1,out _);
-                WriteJsonAtomic(Path.Combine(art1,InviteHistoryFile),new[]{new InviteRecord(DateTimeOffset.Now,"GLOBALAAAAAAAA1","once",null,null,"registered")});
+                WriteJsonAtomic(Path.Combine(art1,InviteHistoryFile),new[]{new InviteRecord(DateTimeOffset.Now,"GLOBALAAAAAAAA1","once",null,null,"registered",null,null)});
+                if(GlobalPoolCapacity()!=4) throw new Exception("Rewardless registration must not complete global quota.");
+                WriteJsonAtomic(Path.Combine(art1,InviteHistoryFile),new[]{new InviteRecord(DateTimeOffset.Now,"GLOBALAAAAAAAA1","once",null,null,"completed",null,"rewards.webp")});
                 RetireUsedInvite(art1);
                 var next1=EnsureGlobalInvite(art1,1);
                 if(next1?.Code!="GLOBALBBBBBBBB2") throw new Exception("Global pool did not advance VM 1 to priority #2 after quota completion.");
+                // Verify same code added twice in Global Pool counts prior completions cumulatively while still executing each row's quota.
+                WriteGlobalPool(new GlobalPoolFile(true,[
+                    new GlobalPoolItem("GLOBALAAAAAAAA1","once",1,t0),
+                    new GlobalPoolItem("GLOBALBBBBBBBB2","once",1,t0),
+                    new GlobalPoolItem("GLOBALAAAAAAAA1","once",2,t0.AddSeconds(1))
+                ]));
+                WithInviteLock(art1,()=>{ File.Delete(Path.Combine(art1,InviteFile)); return 0; });
+                WithInviteLock(art2,()=>{ File.Delete(Path.Combine(art2,InviteFile)); return 0; });
+                var statsDup=ComputeGlobalPoolStats(ReadGlobalPool());
+                if(statsDup[0].Done!=1 || !statsDup[0].Completed || statsDup[2].RowDone!=0 || statsDup[2].Done!=1 || statsDup[2].Completed)
+                    throw new Exception("Duplicate global code cumulative counting mismatch.");
                 // Verify RepeatBlocker with LoopTotal == 0 respects ExtraLoopWhenEmpty toggle.
                 var origLoopTotal=LoopTotal; var origInst=Instance; var origCwd=Directory.GetCurrentDirectory();
                 try
@@ -292,7 +312,7 @@ internal static partial class Program
 
     record GlobalPoolItem(string Code,string Mode,int? Limit,DateTimeOffset Added);
     record GlobalPoolFile(bool Enabled,List<GlobalPoolItem> Items,bool ExtraLoopWhenEmpty=false);
-    record GlobalPoolItemStats(string Code,string Mode,int? Limit,DateTimeOffset Added,string? Owner,int Done,int InFlight,int Projected,int[] RunningVms,bool Completed);
+    record GlobalPoolItemStats(string Code,string Mode,int? Limit,DateTimeOffset Added,string? Owner,int RowDone,int Done,int InFlight,int Projected,int[] RunningVms,bool Completed);
 
     static string GlobalPoolPath=>Path.Combine(Workspace,"local","global-invites.json");
     static T WithGlobalInviteLock<T>(Func<T> action)
@@ -319,13 +339,11 @@ internal static partial class Program
     }
     static void WriteGlobalPool(GlobalPoolFile pool) { Directory.CreateDirectory(Path.GetDirectoryName(GlobalPoolPath)!); WriteJsonAtomic(GlobalPoolPath,pool); }
 
-    static int GlobalCodeDone(GlobalPoolItem item,IEnumerable<InviteRecord> allRecords)=>
-        allRecords.Count(r=>r.Code==item.Code && r.Result=="registered" && r.Time>=item.Added);
-
     static List<GlobalPoolItemStats> ComputeGlobalPoolStats(GlobalPoolFile pool,int? excludeInstance=null)
     {
         var allHist=AllowedInstances.Keys.ToDictionary(n=>n,n=>ReadInviteHistory(ArtifactsDir(n)));
         var allRecords=allHist.Values.SelectMany(h=>h).ToList();
+        var completedRecords=allRecords.Where(IsInviteCompleted).ToList();
         var owners=allRecords.Where(r=>r.Nickname is { Length: >0 }).OrderBy(r=>r.Time).GroupBy(r=>r.Code).ToDictionary(g=>g.Key,g=>g.Last().Nickname!);
         var runningVms=new Dictionary<string,List<int>>();
         foreach(var n in AllowedInstances.Keys.Where(n=>n!=excludeInstance))
@@ -337,14 +355,45 @@ internal static partial class Program
             if(s.Global?used==0:(InviteLimit(s) is not { } lim || used<lim))
                 (runningVms.TryGetValue(s.Code,out var list)?list:(runningVms[s.Code]=[])).Add(n);
         }
+        var earliestAdded=pool.Items.GroupBy(i=>i.Code).ToDictionary(g=>g.Key,g=>g.Min(i=>i.Added));
+        var remDone=new Dictionary<string,int>();
+        var cumDone=new Dictionary<string,int>();
+        var remFlight=new Dictionary<string,List<int>>();
+        foreach(var (code,minAdded) in earliestAdded)
+        {
+            var codeCompleted=completedRecords.Where(r=>r.Code==code).ToList();
+            cumDone[code]=codeCompleted.Count(r=>r.Time<minAdded);
+            remDone[code]=codeCompleted.Count(r=>r.Time>=minAdded);
+            remFlight[code]=runningVms.TryGetValue(code,out var l)?[..l]:[];
+        }
         return pool.Items.Select(item=>
         {
-            var done=GlobalCodeDone(item,allRecords);
-            var vms=runningVms.TryGetValue(item.Code,out var l)?l.ToArray():[];
+            var c=item.Code;
+            var rd=remDone.GetValueOrDefault(c);
+            var rf=remFlight.GetValueOrDefault(c)??[];
+            int rowDone;
+            int[] vms;
+            bool completed;
+            if(item.Mode=="permanent")
+            {
+                rowDone=rd; remDone[c]=0;
+                vms=[..rf]; rf.Clear();
+                completed=false;
+            }
+            else
+            {
+                var lim=item.Limit!.Value;
+                rowDone=Math.Min(lim,rd); remDone[c]=rd-rowDone;
+                var takeFlight=Math.Min(lim-rowDone,rf.Count);
+                vms=rf.Take(takeFlight).ToArray();
+                rf.RemoveRange(0,takeFlight);
+                completed=rowDone>=lim && vms.Length==0;
+            }
             var inFlight=vms.Length;
+            var done=cumDone.GetValueOrDefault(c)+rowDone;
+            cumDone[c]=done;
             var projected=done+inFlight;
-            var completed=item.Mode=="once" && item.Limit is { } lim && done>=lim && inFlight==0;
-            return new GlobalPoolItemStats(item.Code,item.Mode,item.Limit,item.Added,owners.GetValueOrDefault(item.Code),done,inFlight,projected,vms,completed);
+            return new GlobalPoolItemStats(item.Code,item.Mode,item.Limit,item.Added,owners.GetValueOrDefault(c),rowDone,done,inFlight,projected,vms,completed);
         }).ToList();
     }
 
@@ -353,7 +402,7 @@ internal static partial class Program
         var pool=ReadGlobalPool();
         if(pool.Items.Any(i=>i.Mode=="permanent")) return null;
         var stats=ComputeGlobalPoolStats(pool,excludeInstance);
-        return stats.Sum(s=>s.Limit is { } lim?Math.Max(0,lim-s.Projected):0);
+        return stats.Sum(s=>s.Limit is { } lim?Math.Max(0,lim-(s.RowDone+s.InFlight)):0);
     }
 
     static InviteSetting? EnsureGlobalInvite(string artifacts,int instance)=>WithGlobalInviteLock(()=>
@@ -361,27 +410,30 @@ internal static partial class Program
         var pool=ReadGlobalPool();
         if(!pool.Enabled) return ReadInviteSetting(artifacts);
         var current=WithInviteLock(artifacts,()=>ReadInviteSetting(artifacts));
-        var allRecords=AllowedInstances.Keys.SelectMany(n=>ReadInviteHistory(ArtifactsDir(n))).ToList();
+        var completedRecords=AllowedInstances.Keys.SelectMany(n=>ReadInviteHistory(ArtifactsDir(n))).Where(IsInviteCompleted).ToList();
         if(current!=null)
         {
             if(ActiveInviteUses(artifacts,current)>0 ||
-                (CurrentLoopInvite(artifacts) is { } cli && cli.Code==current.Code && cli.Time>=current.Updated && cli.Result=="confirming"))
+                (CurrentLoopInvite(artifacts) is { } cli && cli.Code==current.Code && cli.Time>=current.Updated && cli.Result is "confirming" or "registered"))
                 return current;
-            if(current.Global && pool.Items.FirstOrDefault(i=>i.Code==current.Code) is { } match)
+            var codeRows=pool.Items.Where(i=>i.Code==current.Code).ToList();
+            if(current.Global && codeRows.Count>0)
             {
-                var done=GlobalCodeDone(match,allRecords);
-                if(match.Mode=="permanent") return current;
-                if(match.Limit is { } lim && done<lim)
+                if(codeRows.Any(i=>i.Mode=="permanent")) return current;
+                var minAdded=codeRows.Min(i=>i.Added);
+                var poolDone=completedRecords.Count(r=>r.Code==current.Code && r.Time>=minAdded);
+                var totalLim=codeRows.Sum(i=>i.Limit!.Value);
+                if(poolDone<totalLim)
                 {
                     var ahead=AllowedInstances.Keys.Count(n=>n!=instance && IsWorkerStartingOrRunning(n)
-                        && ReadInviteSetting(ArtifactsDir(n)) is { } s && s.Code==match.Code && ActiveInviteUses(ArtifactsDir(n),s)==0
+                        && ReadInviteSetting(ArtifactsDir(n)) is { } s && s.Code==current.Code && ActiveInviteUses(ArtifactsDir(n),s)==0
                         && (s.Updated<current.Updated || (s.Updated==current.Updated && n<instance)));
-                    if(done+ahead<lim) return current;
+                    if(poolDone+ahead<totalLim) return current;
                 }
             }
         }
         var stats=ComputeGlobalPoolStats(pool,excludeInstance:instance);
-        var nextItem=stats.FirstOrDefault(s=>s.Mode=="permanent" || (s.Limit is { } lim && s.Projected<lim));
+        var nextItem=stats.FirstOrDefault(s=>s.Mode=="permanent" || (s.Limit is { } lim && (s.RowDone+s.InFlight)<lim));
         InviteSetting? assigned=null;
         WithInviteLock(artifacts,()=>
         {
@@ -454,7 +506,5 @@ internal static partial class Program
         if(last>=0) history[last]=history[last] with { Result="registered" };
         else history.Add(new InviteRecord(DateTimeOffset.Now,InviteCode??"",InviteMode??"",null,null,"registered",ReadLoop("artifacts")?.Index));
         await File.WriteAllTextAsync(Path.Combine("artifacts",InviteHistoryFile),JsonSerializer.Serialize(history,JsonOptions));
-        if(RetireUsedInvite("artifacts") is { } note) Console.WriteLine(note);
-        if(!ReadGlobalPool().Enabled && PromoteQueuedInvite("artifacts") is { } next) Console.WriteLine($"Next queued invitation code activated ({next.Mode}, up to {InviteLimit(next)?.ToString()??"unlimited"}).");
     }
 }

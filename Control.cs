@@ -524,8 +524,8 @@ internal static partial class Program
             if(!ReadGlobalPool().Enabled) throw new InvalidOperationException(T("자동 반복은 전역 초대 코드가 켜져 있을 때만 쓸 수 있어요.","自動繰り返しはグローバル招待コードがオンの時のみ使えます。","Auto-loop requires the global invitation pool to be enabled."));
         }
         else if(total<loop.Index || total>99) throw new ArgumentException(T($"회차는 {loop.Index}~99회로 정할 수 있어요.",$"周回は{loop.Index}〜99回にできます。",$"Loops can be set from {loop.Index} to 99."));
-        // Loops can reach remaining registrations + 1 (and pending=1 if the current loop has not registered yet).
-        var pending=CurrentLoopInvite(dir)?.Result=="registered"?0:1;
+        // Loops can reach remaining registrations + 1 (and pending=1 if the current loop has not completed rewards yet).
+        var pending=CurrentLoopInvite(dir) is { } cli && IsInviteCompleted(cli)?0:1;
         if(total>loop.Index && InviteCapacity(dir) is { } room && total-loop.Index+pending>room+1)
         {
             var maxTotal=loop.Index+room+1-pending;
@@ -817,6 +817,7 @@ internal static partial class Program
             VmName=AllowedInstances.GetValueOrDefault(vm)??VmHash(vm),
             s.Code,
             s.Owner,
+            s.RowDone,
             s.Done,
             s.InFlight,
             s.Projected,
@@ -878,8 +879,6 @@ internal static partial class Program
         var pos=WithGlobalInviteLock(()=>
         {
             var pool=ReadGlobalPool();
-            if(pool.Items.Any(i=>i.Code.Equals(clean,StringComparison.OrdinalIgnoreCase)))
-                throw new InvalidOperationException(T("이미 전역 목록에 있는 코드예요. 횟수는 목록에서 조절하세요.","すでにグローバル一覧にあるコードです。回数は一覧から変更できます。","That code is already in the global list. Adjust its uses there."));
             var next=pool.Items.ToList();
             next.Add(new GlobalPoolItem(clean,mode!,mode=="once"?limit??1:null,DateTimeOffset.Now));
             WriteGlobalPool(pool with { Items=next });
@@ -924,7 +923,7 @@ internal static partial class Program
             var cur=pool.Items[index];
             if(cur.Mode!="once") throw new InvalidOperationException(T("영구 코드는 횟수 없이 계속 써요.","永久コードは回数なしで使い続けます。","Permanent codes have no use limit."));
             var stats=ComputeGlobalPoolStats(pool);
-            var done=stats[index].Done;
+            var done=stats[index].RowDone;
             if(limit<done) throw new ArgumentException(T($"이미 {done}번 완료됐어요.",$"すでに{done}回完了しています。",$"Already completed {done} times."));
             var next=pool.Items.ToList();
             next[index]=cur with { Limit=limit };

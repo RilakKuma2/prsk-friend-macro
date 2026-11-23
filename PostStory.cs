@@ -102,7 +102,7 @@ internal static partial class Program
     // remembered until the list is checked, seen after it (invitation check) it ends the loop as successful.
     sealed class RewardsReceived():Exception("Invitation mission rewards received.");
     static string? SeenRewards;
-    static bool RewardsEligible(string step)=>CurrentLoopInvite("artifacts")?.Result=="registered" && StepsForStage("eventstory").Any(s=>s.Name==step);
+    static bool RewardsEligible(string step)=>CurrentLoopInvite("artifacts")?.Result is "registered" or "completed" && StepsForStage("eventstory").Any(s=>s.Name==step);
     static string SaveRewardsCapture()
     {
         var image=$"{DateTime.Now:yyyyMMdd-HHmmss}-rewards.webp";
@@ -139,10 +139,12 @@ internal static partial class Program
     {
         var history=ReadInviteHistory("artifacts");
         var started=LoopStarted("artifacts");
-        var last=history.FindLastIndex(r=>r.Result=="registered" && (started==null || r.Time>=started));
-        if(last>=0) history[last]=history[last] with { Rewards=image };
-        else history.Add(new InviteRecord(DateTimeOffset.Now,InviteCode??"",InviteMode??"",null,null,"registered",ReadLoop("artifacts")?.Index,image));
+        var last=history.FindLastIndex(r=>(r.Result is "registered" or "completed") && (started==null || r.Time>=started));
+        if(last>=0) history[last]=history[last] with { Result="completed",Rewards=image };
+        else history.Add(new InviteRecord(DateTimeOffset.Now,InviteCode??"",InviteMode??"",null,null,"completed",ReadLoop("artifacts")?.Index,image));
         await File.WriteAllTextAsync(Path.Combine("artifacts",InviteHistoryFile),JsonSerializer.Serialize(history,JsonOptions));
+        if(RetireUsedInvite("artifacts") is { } note) Console.WriteLine(note);
+        if(!ReadGlobalPool().Enabled && PromoteQueuedInvite("artifacts") is { } next) Console.WriteLine($"Next queued invitation code activated ({next.Mode}, up to {InviteLimit(next)?.ToString()??"unlimited"}).");
         await SaveCheckpoint("event-stories-complete","complete");
         Console.WriteLine($"Invitation rewards captured and closed: loop counted as successful ({image}).");
     }

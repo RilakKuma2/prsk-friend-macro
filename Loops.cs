@@ -50,7 +50,7 @@ internal static partial class Program
         if(StopRequested || File.Exists("artifacts/macro.stop")) return "stop requested";
         if(StageIncomplete) return "event stories incomplete";
         var hasCode=RefreshInviteCode();
-        var registeredLastLoop=CurrentLoopInvite("artifacts")?.Result=="registered";
+        var registeredLastLoop=CurrentLoopInvite("artifacts") is { } cli && IsInviteCompleted(cli);
         if(LoopLimit()==0)
         {
             var pool=ReadGlobalPool();
