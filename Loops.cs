@@ -75,22 +75,41 @@ internal static partial class Program
                 Console.WriteLine($"\n[{DateTimeOffset.Now:O}] Loop {LoopIndex}/{(LoopLimit()==0?"auto":LoopLimit().ToString())} (skipGacha={skipGacha})");
             }
             StartTimingTurn(LoopIndex,LoopLimit(),"run");
+            var rebootNext=false;
             for(var fresh=0;;fresh++)
             {
                 StageIncomplete=false; SkipInvitation=false;
                 // Clear per-account state from any prior loop before resetting into a new account.
                 SeenRewards=null; HomeGuidesCompleted=false; VerifiedInviteCode=null;
-                TitleVisibleSince=null; TitleRestartCount=0; ProgressStage=null; ActiveStep=null; From=null; Until=null;
-                if(fresh>0)
+                TitleVisibleSince=null; TitleRestartCount=0; TitleVmRebooted=false; ProgressStage=null; ActiveStep=null; From=null; Until=null;
+                var timedRestart=fresh>0 || rebootNext;
+                try
                 {
-                    Console.WriteLine($"Starting loop {LoopIndex} over with a new account ({fresh}/{FreshStarts}); invitation code and loops as they are.");
-                    BeginTimingRestart("fresh-start",ProgressStage);
-                    await RebootInstance();
+                    if(timedRestart)
+                    {
+                        DiscardAbandonedLoopInvite("artifacts");
+                        Console.WriteLine(fresh==0
+                            ?$"Restarting loop {LoopIndex} from scratch after {FreshStarts} stalled reboots; rebooting instance and discarding incomplete invite state."
+                            :$"Starting loop {LoopIndex} over with a new account ({fresh}/{FreshStarts}); invitation code and loops as they are.");
+                        BeginTimingRestart("fresh-start",ProgressStage);
+                        await RebootInstance();
+                        rebootNext=false;
+                    }
+                    await Reset();
+                    await Shell($"monkey -p {Package} -c android.intent.category.LAUNCHER 1");
+                    if(timedRestart) EndTimingRestart();
+                    if(await ExecuteStagesRecovering(fresh<FreshStarts)) { FinishTimingTurn("complete"); break; }
                 }
-                await Reset();
-                await Shell($"monkey -p {Package} -c android.intent.category.LAUNCHER 1");
-                if(fresh>0) EndTimingRestart();
-                if(await ExecuteStagesRecovering(fresh<FreshStarts)) { FinishTimingTurn("complete"); break; }
+                catch(Exception ex) when(!StopRequested && !File.Exists("artifacts/macro.stop") && (fresh<FreshStarts || ProgressStage is "onboarding" or "eventstory"))
+                {
+                    DiscardAbandonedLoopInvite("artifacts");
+                    if(fresh>=FreshStarts)
+                    {
+                        Console.WriteLine($"Loop {LoopIndex} remained stalled in {ProgressStage} after {FreshStarts} reboots ({ex.Message}); restarting instance from scratch.");
+                        fresh=-1; rebootNext=true; continue;
+                    }
+                    Console.WriteLine($"Loop {LoopIndex} error ({ex.Message}); rebooting instance and retrying ({fresh+1}/{FreshStarts}).");
+                }
             }
         }
         if(LoopTotal==0) Console.WriteLine("Auto global loop run finished.");

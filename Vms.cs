@@ -78,10 +78,18 @@ internal static partial class Program
     {
         if(!(await AllVmRows()).TryGetValue(instance,out var row) || row[4]!="1") return;
         await VmQuitRequest(instance);
+        var killed=false;
         for(var i=0;i<60;i++)
         {
             await Task.Delay(1000);
             if(!(await AllVmRows()).TryGetValue(instance,out row) || row[4]!="1") { ForgetVmLists(); await Task.Delay(2000); return; }
+            // Force-close a hung VM process (e.g., frozen by an emulator ad overlay) if graceful quit fails after 25s.
+            if(!killed && i>=25 && int.TryParse(row[5],out var pid) && pid>0)
+            {
+                killed=true;
+                Console.WriteLine($"VM {instance} unresponsive to quit after 25s; killing PID {pid}.");
+                try { using var proc=Process.GetProcessById(pid); if(!proc.HasExited) proc.Kill(true); } catch { }
+            }
         }
         throw new TimeoutException(T($"{VmNo(instance)}번 VM이 꺼지지 않아요.",$"{VmNo(instance)}番のVMが停止しません。",$"{VmHash(instance)} VM does not shut down."));
     }

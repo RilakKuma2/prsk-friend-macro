@@ -269,6 +269,10 @@ internal static partial class Program
                     if(RepeatBlocker()==null) throw new Exception("Auto-loop should stop when global pool is exhausted and ExtraLoopWhenEmpty is false.");
                     WriteGlobalPool(new GlobalPoolFile(true,[new GlobalPoolItem("GLOBALAAAAAAAA1","once",1,t0)],ExtraLoopWhenEmpty:true));
                     if(RepeatBlocker()!=null) throw new Exception("Auto-loop should allow 1 extra loop when ExtraLoopWhenEmpty is true.");
+                    // Discarding an abandoned loop's entered-but-unrewarded invite restores clean pre-entry state.
+                    WriteJsonAtomic(Path.Combine(art1,InviteHistoryFile),new[]{new InviteRecord(DateTimeOffset.Now,"GLOBALBBBBBBBB2","once",null,null,"registered",1,null)});
+                    DiscardAbandonedLoopInvite(art1);
+                    if(ReadInviteHistory(art1).Count!=0) throw new Exception("DiscardAbandonedLoopInvite did not remove incomplete loop invite.");
                 }
                 finally { Directory.SetCurrentDirectory(origCwd); LoopTotal=origLoopTotal; Instance=origInst; }
                 // Verify 5 simultaneous starts with limit 1 + limit 1 never over-assign any code (even before instance.lock is opened).
@@ -308,6 +312,17 @@ internal static partial class Program
     {
         try { var path=Path.Combine(artifacts,InviteHistoryFile); return File.Exists(path)?JsonSerializer.Deserialize<List<InviteRecord>>(File.ReadAllText(path))!:[]; }
         catch { return []; }
+    }
+
+    // Discards an uncompleted in-game invite entry (entered/confirming without reward capture) when an account is reset and started over.
+    static void DiscardAbandonedLoopInvite(string artifacts)
+    {
+        var started=LoopStarted(artifacts);
+        var history=ReadInviteHistory(artifacts);
+        var removed=history.RemoveAll(r=>(started==null || r.Time>=started) && !IsInviteCompleted(r) && r.Result is "confirming" or "registered");
+        if(removed<=0) return;
+        WriteJsonAtomic(Path.Combine(artifacts,InviteHistoryFile),history);
+        Console.WriteLine($"Cleared {removed} uncompleted invitation record(s) before restarting from scratch.");
     }
 
     record GlobalPoolItem(string Code,string Mode,int? Limit,DateTimeOffset Added);

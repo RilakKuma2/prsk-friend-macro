@@ -4,6 +4,7 @@ internal static partial class Program
 {
     static DateTime? TitleVisibleSince;
     static int TitleRestartCount;
+    static bool TitleVmRebooted;
     static async Task<bool> RecoverStalledTitle(Bitmap screen)
     {
         if(!Matches(screen,LoadSteps().Single(s=>s.Name=="title-start")))
@@ -12,9 +13,24 @@ internal static partial class Program
         TitleVisibleSince??=now;
         // This timer belongs to the observed screen, so a stage audit cannot reset it.
         if(now-TitleVisibleSince.Value<TimeSpan.FromSeconds(45)) return false;
-        if(TitleRestartCount>=2) throw new Exception("Title remained unresponsive after two game restarts. Latest screenshot saved; no account reset performed by recovery.");
+        if(TitleRestartCount>=3)
+        {
+            if(TitleVmRebooted)
+                throw new Exception("Title remained unresponsive after 3 game restarts and instance reboot. Latest screenshot saved; no account reset performed by recovery.");
+            TitleVmRebooted=true;
+            SaveCurrentEvidence($"artifacts/title-stall-reboot.webp");
+            Console.WriteLine($"Title remained unresponsive after 3 game restarts; rebooting instance {Instance}. Account data retained.");
+            var stage=ProgressStage??"onboarding";
+            BeginTimingRestart("vm",stage);
+            await RebootInstance();
+            await Shell($"monkey -p {Package} -c android.intent.category.LAUNCHER 1");
+            TitleVisibleSince=null;
+            await Task.Delay(2500);
+            EndTimingRestart(stage);
+            return true;
+        }
         SaveCurrentEvidence($"artifacts/title-stall-{TitleRestartCount+1}.webp");
-        Console.WriteLine($"Title unresponsive for 45 seconds; restarting only instance {Instance}'s game ({++TitleRestartCount}/2). Account data retained.");
+        Console.WriteLine($"Title unresponsive for 45 seconds; restarting only instance {Instance}'s game ({++TitleRestartCount}/3). Account data retained.");
         BeginTimingRestart("title",ProgressStage??"onboarding");
         await Shell($"am force-stop {Package}");
         await Shell($"monkey -p {Package} -c android.intent.category.LAUNCHER 1");

@@ -613,7 +613,7 @@ internal static partial class Program
         void Report(string msg) { if(msg!=lastMsg) { lastMsg=msg; Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] {msg}"); } }
         var fromCache=await AutoUpdateInstance(Instance,allowCache:!AutoUpdateUsedCache,Report,()=>StopRequested || File.Exists("artifacts/macro.stop"));
         if(fromCache) AutoUpdateUsedCache=true; else AutoUpdateFetchedFresh=true;
-        TitleVisibleSince=null; TitleRestartCount=0;
+        TitleVisibleSince=null; TitleRestartCount=0; TitleVmRebooted=false;
         await Task.Delay(5000);
     }
 
@@ -717,7 +717,7 @@ internal static partial class Program
                     // Fast path: when the expected screen is already matched, skip secondary notice/survey/recovery checks.
                     if(difference<threshold)
                     {
-                        if(!step.Name.StartsWith("title-")) ResetAutoUpdateGuard();
+                        if(!step.Name.StartsWith("title-")) { ResetAutoUpdateGuard(); TitleRestartCount=0; TitleVmRebooted=false; }
                         if(step.Name=="story-no-voice" && !StoryContinuousChecked(screen))
                         {
                             Console.WriteLine("Continuous reading is unchecked; enabling and verifying before starting.");
@@ -752,27 +752,29 @@ internal static partial class Program
                     }
                     if(await RecoverStalledTitle(screen)) { lastActivityCheck=DateTime.MinValue; previous=null; continue; }
                     // Universal stall auto-restart across all steps/stages (except while downloading game data):
-                    // 1st stall (75s): restart game app and recover step/stage.
-                    // 2nd stall (75s): reboot emulator instance and recover step/stage.
-                    // 3rd stall (75s): throw timeout so ExecuteStagesRecovering restarts the stage or resets the loop.
+                    // Stalls 1-3 (75s each): restart game app and recover step/stage.
+                    // Stall 4 (75s): reboot emulator instance and recover step/stage.
+                    // Stall 5 (75s): throw timeout so ExecuteStagesRecovering restarts the stage or resets the loop.
                     if(!IsDataDownloadProgress(screen) && DateTime.UtcNow-waitStarted>TimeSpan.FromSeconds(75))
                     {
-                        if(startupRestarts>=2)
-                            throw new TimeoutException($"Step {step.Name} remained stalled after game restart and instance reboot.");
+                        if(startupRestarts>=4)
+                            throw new TimeoutException($"Step {step.Name} remained stalled after 3 game restarts and instance reboot.");
                         SaveCurrentEvidence($"artifacts/stall-restart-{++startupRestarts}.webp");
                         var restartStage=ProgressStage??StageOf(step.Name);
-                        BeginTimingRestart(startupRestarts==1?"game":"vm",restartStage);
-                        if(startupRestarts==1)
+                        BeginTimingRestart(startupRestarts<=3?"game":"vm",restartStage);
+                        if(startupRestarts<=3)
                         {
-                            Console.WriteLine($"Step {step.Name} stalled for 75s; restarting game ({startupRestarts}/2).");
+                            Console.WriteLine($"Step {step.Name} stalled for 75s; restarting game ({startupRestarts}/3).");
                             await Shell($"am force-stop {Package}");
                             await Shell($"monkey -p {Package} -c android.intent.category.LAUNCHER 1");
                             await Task.Delay(2500);
                         }
                         else
                         {
-                            Console.WriteLine($"Step {step.Name} still stalled after game restart; rebooting instance ({startupRestarts}/2).");
+                            Console.WriteLine($"Step {step.Name} still stalled after 3 game restarts; rebooting instance.");
                             await RebootInstance();
+                            await Shell($"monkey -p {Package} -c android.intent.category.LAUNCHER 1");
+                            await Task.Delay(2500);
                         }
                         if(stageSteps!=null && !onboardingStep)
                         {
