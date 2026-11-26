@@ -1048,8 +1048,8 @@ internal static partial class Program
         var stable=0; var deadline=DateTime.UtcNow.AddHours(2);
         while(DateTime.UtcNow<deadline)
         {
-            // Deliberately one screenshot each minute, not per song/frame.
-            for(var i=0;i<60 && !StopRequested;i++) { if(File.Exists("artifacts/macro.stop")) StopRequested=true; await Task.Delay(1000); }
+            // Deliberately one screenshot every 30 seconds, not per song/frame.
+            for(var i=0;i<30 && !StopRequested;i++) { if(File.Exists("artifacts/macro.stop")) StopRequested=true; await Task.Delay(1000); }
             if(StopRequested) throw new OperationCanceledException();
             await Guard(); await Snapshot(quiet:true);
             using var screen=LoadCurrentScreen();
@@ -1096,11 +1096,10 @@ internal static partial class Program
             PublishCurrentFrame(bytes);
             if(IsStoryReader(screen) || IsDarkStoryTransition(screen))
             {
-                if(taps==0) Console.WriteLine("Story playback confirmed; continuous dialogue taps with 120-second screen checks.");
+                if(taps==0) Console.WriteLine("Story playback confirmed; continuous dialogue taps with 30-second screen checks.");
                 lastKnown=DateTime.UtcNow; listFrames=0;
                 // One persistent ADB shell; no per-tap adb/Java process or image recognition.
-                // The user explicitly requested two-minute screen checks during this phase.
-                await ContinuousStoryTaps(); taps+=960; lastKnown=DateTime.UtcNow;
+                await ContinuousStoryTaps(); taps+=240; lastKnown=DateTime.UtcNow;
             }
             else if(await DismissStoryReceipt(screen)) { lastKnown=DateTime.UtcNow; listFrames=0; }
             // With the code entered beforehand, this dialog opens once the stories are read: capture and close it,
@@ -1208,7 +1207,7 @@ internal static partial class Program
         }
         return Button(140) && Button(600);
     }
-    static async Task ContinuousStoryTaps(int durationMs=120000)
+    static async Task ContinuousStoryTaps(int durationMs=30000)
     {
         if(!RapidStorySteps.Contains(ActiveStep??"")) throw new Exception("Rapid taps blocked outside a story step.");
         var touch=await StoryTouchDevice();
@@ -1244,7 +1243,7 @@ internal static partial class Program
         using var process=new Process { StartInfo=new ProcessStartInfo(Adb) { UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true } };
         foreach(var arg in new[]{"-s",Serial,"shell","sh /data/local/tmp/sekai-story-taps.sh"}) process.StartInfo.ArgumentList.Add(arg);
         process.Start(); var output=process.StandardOutput.ReadToEndAsync(); var error=process.StandardError.ReadToEndAsync();
-        Console.WriteLine(durationMs==120000?"Continuous center taps: 8/sec target; next image check in 2 minutes.":"Fast-forwarding introductory narration until the story menu appears.");
+        Console.WriteLine(durationMs==30000?"Continuous center taps: 8/sec target; next image check in 30 seconds.":"Fast-forwarding introductory narration until the story menu appears.");
         var until=DateTime.UtcNow.AddMilliseconds(durationMs);
         try
         {
