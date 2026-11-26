@@ -628,8 +628,18 @@ select.field{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xml
 
 <!-- Update sheet -->
 <section class="sheet" id="updateSheet">
-  <div class="sheet-head"><div><h2 id="uTitle">업데이트 확인</h2><p id="uText"></p></div><button class="x" data-close>✕</button></div>
+  <div class="sheet-head"><div><h2 id="uTitle">업데이트 확인</h2><p id="uText"></p></div><button class="x" id="uClose" data-close>✕</button></div>
   <div class="sheet-body" id="uBody" style="display:none"><pre class="log" id="uNotes" style="margin-top:0;height:240px"></pre></div>
+  <div id="uProgBox" style="display:none;padding:12px 24px 4px">
+    <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;font-weight:600;margin-bottom:8px">
+      <span id="uProgLabel">업데이트 다운로드 중…</span>
+      <span id="uProgPct" style="font-variant-numeric:tabular-nums;color:var(--accent)">0%</span>
+    </div>
+    <div style="height:8px;border-radius:99px;background:var(--fill);overflow:hidden">
+      <div id="uProgBar" style="height:100%;width:0%;border-radius:99px;background:var(--accent);transition:width .2s ease"></div>
+    </div>
+    <div id="uProgDetail" style="margin-top:6px;font-size:12px;color:var(--text-3)"></div>
+  </div>
   <div class="sheet-foot" style="display:flex;gap:8px;padding-top:16px">
     <button class="btn tonal block" id="uNo">나중에</button><button class="btn primary block" id="uYes">지금 업데이트</button>
   </div>
@@ -1508,8 +1518,8 @@ setInterval(()=>{if(!document.hidden){loadVms();if($('#globalInvSheet').classLis
 $('#ldSave').onclick=async()=>{try{toast((await api('/ldplayer',{path:$('#ldPath').value})).message);setTimeout(()=>location.reload(),800)}catch(e){toast(e.message,true)}};
 $('#langBtn').onclick=()=>{renderLangs();show('#langSheet')};
 
+let updatePollTimer=null;
 async function checkUpdate(manual=true){
-  if(manual&&window.chrome?.webview?.postMessage){window.chrome.webview.postMessage('check-update');return}
   if(manual)toast(t('업데이트 확인 중…'));
   try{
     const u=await api('/update');
@@ -1522,13 +1532,47 @@ async function checkUpdate(manual=true){
         :t('새 버전 v{0}이(가) 나왔어요 (현재 v{1}). 다운로드할까요?',u.latest,u.current);
       const notes=(u.notes||'').trim();
       $('#uBody').style.display=notes?'':'none';$('#uNotes').textContent=notes;
-      const yes=$('#uYes'),no=$('#uNo');
-      yes.disabled=false;yes.textContent=t(u.canSelfUpdate?'지금 업데이트':'다운로드');no.textContent=t('나중에');
+      $('#uProgBox').style.display='none';$('#uProgBar').style.width='0%';$('#uProgPct').textContent='0%';$('#uProgDetail').textContent='';
+      const yes=$('#uYes'),no=$('#uNo'),cls=$('#uClose');
+      yes.disabled=false;no.disabled=false;if(cls)cls.disabled=false;
+      yes.textContent=t(u.canSelfUpdate?'지금 업데이트':'다운로드');no.textContent=t('나중에');
       no.onclick=()=>hide($('#updateSheet'));
       yes.onclick=async()=>{
         if(u.canSelfUpdate){
-          yes.disabled=true;toast(t('업데이트 다운로드 및 설치 중… 잠시 후 자동으로 다시 열립니다.'));
-          try{await api('/apply-update',{})}catch(err){yes.disabled=false;toast(err.message,true)}
+          yes.disabled=true;no.disabled=true;if(cls)cls.disabled=true;
+          $('#uProgBox').style.display='';
+          $('#uProgLabel').textContent=t('업데이트 다운로드 중…');
+          $('#uProgPct').textContent='0%';$('#uProgBar').style.width='0%';$('#uProgDetail').textContent='';
+          if(updatePollTimer){clearInterval(updatePollTimer);updatePollTimer=null}
+          const poll=async()=>{
+            try{
+              const st=await api('/update/status');
+              if(st.phase==='downloading'){
+                $('#uProgLabel').textContent=t('업데이트 다운로드 중…');
+                $('#uProgPct').textContent=st.percent+'%';$('#uProgBar').style.width=st.percent+'%';
+                $('#uProgDetail').textContent=st.detail||'';
+              }else if(st.phase==='extracting'){
+                $('#uProgLabel').textContent=t('압축 푸는 중…');
+                $('#uProgPct').textContent='100%';$('#uProgBar').style.width='100%';
+                $('#uProgDetail').textContent=st.detail||'';
+              }else if(st.phase==='applying'){
+                $('#uProgLabel').textContent=t('업데이트 적용 중… 잠시 후 자동으로 다시 열립니다.');
+                $('#uProgPct').textContent='100%';$('#uProgBar').style.width='100%';
+                $('#uProgDetail').textContent=st.detail||'';
+              }else if(st.phase==='error'){
+                clearInterval(updatePollTimer);updatePollTimer=null;
+                yes.disabled=false;no.disabled=false;if(cls)cls.disabled=false;
+                toast(st.error||t('업데이트하지 못했어요.'),true);
+              }
+            }catch(e){}
+          };
+          updatePollTimer=setInterval(poll,250);
+          try{await api('/apply-update',{});poll()}catch(err){
+            if(updatePollTimer){clearInterval(updatePollTimer);updatePollTimer=null}
+            $('#uProgBox').style.display='none';
+            yes.disabled=false;no.disabled=false;if(cls)cls.disabled=false;
+            toast(err.message,true);
+          }
           return;
         }
         hide($('#updateSheet'));
@@ -1562,7 +1606,7 @@ $('#updateBtn').onclick=()=>checkUpdate(true);
   renderNote();loadVms();
   const s=await api('/server');state.local=s.local;if(!s.local){$('#remote').style.display='none';$('#updateBtn').style.display='none'}
   await refresh();setInterval(refresh,2000);
-  if(s.local&&!window.chrome?.webview?.postMessage)checkUpdate(false);
+  if(s.local)checkUpdate(false);
 })();
 </script>
 </body>

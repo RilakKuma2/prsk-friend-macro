@@ -11,12 +11,94 @@ internal static partial class Program
 
     // Only a release install updates itself (the exe sits next to flow.json); a dev build under bin\ is left alone.
     static bool IsReleaseInstall=>string.Equals(Path.GetFullPath(AppContext.BaseDirectory).TrimEnd('\\'),Path.GetFullPath(Workspace).TrimEnd('\\'),StringComparison.OrdinalIgnoreCase);
+    static bool CanWindowsSelfUpdate()=>IsReleaseInstall;
     static int UpdateCheckRunning;
     static volatile bool UpdateDownloading,UpdateApplying;
 
     static void BindUpdateLifetime(Form window)
     {
         window.FormClosing+=(_,e)=>{ if(UpdateDownloading && !UpdateApplying) e.Cancel=true; };
+    }
+
+    static void StartWindowsSelfUpdate()
+    {
+        if(!IsReleaseInstall)
+            throw new InvalidOperationException(T("개발용 빌드입니다. 배포용 앱에서 업데이트할 수 있어요.","開発用ビルドです。配布版アプリで更新できます。","This is a development build. Use a release package to update."));
+        if(AnyMacroBusy() || OtherMacroProcesses())
+            throw new InvalidOperationException(T("매크로가 실행 중입니다. 모두 멈춘 뒤 다시 시도해 주세요.","マクロ実行中です。すべて停止してから再度お試しください。","A macro is running. Stop all jobs before updating."));
+        if(Interlocked.Exchange(ref UpdateCheckRunning,1)!=0)
+            throw new InvalidOperationException(T("이미 업데이트가 진행 중입니다.","すでにアップデートが進行中です。","An update is already in progress."));
+        UpdateDownloading=true;
+        CurrentUpdateProgress=new("downloading",0,T("업데이트 정보 확인 중…","アップデート情報を確認中…","Checking update info…"));
+        _=Task.Run(async()=>
+        {
+            var window=MainWindow;
+            try
+            {
+                var info=await ReadUpdateInfo();
+                if(info.Status!="available" || string.IsNullOrEmpty(info.DownloadUrl))
+                    throw new InvalidOperationException(T("다운로드할 새 버전이 없습니다.","ダウンロードできる新しいバージョンがありません。","No new version available to download."));
+                var staging=Path.Combine(Workspace,"local","update");
+                if(Directory.Exists(staging)) Directory.Delete(staging,true);
+                Directory.CreateDirectory(staging);
+                var zip=Path.Combine(staging,ReleaseAsset);
+                await DownloadUpdateWithProgress(info.DownloadUrl,zip,window);
+                CurrentUpdateProgress=new("extracting",100,T("압축 푸는 중…","展開中…","Extracting files…"));
+                var extracted=Path.Combine(staging,"files");
+                ZipFile.ExtractToDirectory(zip,extracted);
+                var source=Path.GetDirectoryName(Directory.GetFiles(extracted,"SekaiMacro.exe",SearchOption.AllDirectories).FirstOrDefault()
+                    ??throw new InvalidDataException("SekaiMacro.exe is missing from the release."))!;
+                if(!File.Exists(Path.Combine(source,"flow.json"))) throw new InvalidDataException("flow.json is missing from the release.");
+                if(AnyMacroBusy() || OtherMacroProcesses())
+                    throw new InvalidOperationException(T("매크로가 실행 중입니다. 모두 멈춘 뒤 다시 시도해 주세요.","マクロ実行中です。すべて停止してから再度お試しください。","A macro is running. Stop all jobs before updating."));
+                CurrentUpdateProgress=new("applying",100,T("업데이트 적용 후 자동으로 다시 열립니다…","更新を適用して自動で再起動します…","Applying update and restarting…"));
+                var script=Path.Combine(staging,"apply.ps1");
+                File.WriteAllText(script,ApplyScript);
+                var startInfo=new ProcessStartInfo("powershell.exe") { UseShellExecute=false,CreateNoWindow=true };
+                foreach(var arg in new[]{"-NoProfile","-ExecutionPolicy","Bypass","-File",script,"-ProcessId",Environment.ProcessId.ToString(),"-Source",source,"-Target",Workspace,"-Staging",staging})
+                    startInfo.ArgumentList.Add(arg);
+                Process.Start(startInfo);
+                UpdateApplying=true;
+                await Task.Delay(450);
+                if(window is { IsDisposed: false }) window.BeginInvoke(window.Close);
+                else Environment.Exit(0);
+            }
+            catch(Exception ex)
+            {
+                CurrentUpdateProgress=new("error",0,"",ex.Message);
+            }
+            finally
+            {
+                if(!UpdateApplying)
+                {
+                    UpdateDownloading=false;
+                    Interlocked.Exchange(ref UpdateCheckRunning,0);
+                    if(window is { IsDisposed: false }) window.BeginInvoke(()=>window.Text=AppTitle);
+                }
+            }
+        });
+    }
+
+    static async Task DownloadUpdateWithProgress(string url,string path,Form? window)
+    {
+        using var http=new HttpClient { Timeout=TimeSpan.FromMinutes(15) };
+        http.DefaultRequestHeaders.UserAgent.ParseAdd("SekaiMacro/"+CurrentVersion);
+        using var response=await http.GetAsync(url,HttpCompletionOption.ResponseHeadersRead);
+        response.EnsureSuccessStatusCode();
+        var total=response.Content.Headers.ContentLength;
+        await using var input=await response.Content.ReadAsStreamAsync();
+        await using var output=File.Create(path);
+        var buffer=new byte[1<<16]; long done=0; int read,shown=-1;
+        while((read=await input.ReadAsync(buffer))>0)
+        {
+            await output.WriteAsync(buffer.AsMemory(0,read)); done+=read;
+            var percent=total>0?(int)(done*100/total.Value):0;
+            if(percent==shown && done<total) continue;
+            shown=percent;
+            var detail=total>0?$"{done/1048576.0:0.0} / {total.Value/1048576.0:0.0} MB":$"{done/1048576.0:0.0} MB";
+            CurrentUpdateProgress=new("downloading",percent,detail);
+            if(window is { IsDisposed: false }) window.BeginInvoke(()=>window.Text=$"{AppTitle} · {T("업데이트 받는 중","アップデートを取得中","Downloading the update")} {percent}%");
+        }
     }
 
     static DialogResult ConfirmUpdate(Form owner,string message,string notes)

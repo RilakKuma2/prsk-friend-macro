@@ -10,6 +10,8 @@ internal static partial class Program
         :new(v.Major,v.Minor,Math.Max(v.Build,0));
 
     sealed record UpdateInfo(string Current,string? Latest,string Status,string? DownloadUrl,string Notes="",bool CanSelfUpdate=false);
+    sealed record UpdateProgressState(string Phase,int Percent,string Detail,string? Error=null);
+    static volatile UpdateProgressState CurrentUpdateProgress=new("idle",0,"");
 
     static string? MacAppBundlePath()
     {
@@ -30,7 +32,8 @@ internal static partial class Program
         if(response.StatusCode==System.Net.HttpStatusCode.NotFound) return new(CurrentVersion.ToString(),null,"unreleased",null);
         response.EnsureSuccessStatusCode();
         using var document=JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        var info=ParseUpdateInfo(document.RootElement,OperatingSystem.IsMacOS()) with { CanSelfUpdate=MacAppBundlePath()!=null };
+        var canSelfUpdate=OperatingSystem.IsMacOS()?MacAppBundlePath()!=null:CanWindowsSelfUpdate();
+        var info=ParseUpdateInfo(document.RootElement,OperatingSystem.IsMacOS()) with { CanSelfUpdate=canSelfUpdate };
         return info.Status=="available"?info with { Notes=await ReadPendingReleaseNotes(http,document.RootElement) }:info;
     }
 

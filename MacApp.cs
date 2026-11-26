@@ -74,6 +74,9 @@ internal static partial class Program
         return Regex.Replace(await Ocr(path,scale),@"\s+","");
     }
 
+    static bool CanWindowsSelfUpdate()=>false;
+    static void StartWindowsSelfUpdate()=>throw new NotSupportedException();
+
     static async Task ApplyMacSelfUpdate(string bundle)
     {
         if(AnyMacroBusy())
@@ -95,10 +98,18 @@ internal static partial class Program
             http.DefaultRequestHeaders.UserAgent.ParseAdd("SekaiMacro/"+CurrentVersion);
             using var response=await http.GetAsync(url,HttpCompletionOption.ResponseHeadersRead);
             response.EnsureSuccessStatusCode();
+            var total=response.Content.Headers.ContentLength;
             await using var input=await response.Content.ReadAsStreamAsync();
             await using var output=File.Create(dmg);
-            await input.CopyToAsync(output);
+            var buffer=new byte[1<<16]; long done=0; int read,shown=-1;
+            while((read=await input.ReadAsync(buffer))>0)
+            {
+                await output.WriteAsync(buffer.AsMemory(0,read)); done+=read;
+                var percent=total>0?(int)(done*100/total.Value):0;
+                if(percent!=shown) { shown=percent; var detail=total>0?$"{done/1048576.0:0.0} / {total.Value/1048576.0:0.0} MB":$"{done/1048576.0:0.0} MB"; CurrentUpdateProgress=new("downloading",percent,detail); }
+            }
         }
+        CurrentUpdateProgress=new("extracting",100,T("설치 이미지 여는 중…","インストールイメージを展開中…","Mounting update image…"));
         await Run("/usr/bin/hdiutil","attach","-nobrowse","-readonly","-mountpoint",mnt,dmg);
         var sourceApp=Path.Combine(mnt,"SekaiMacro.app");
         if(!File.Exists(Path.Combine(sourceApp,"Contents","MacOS","SekaiMacro")))

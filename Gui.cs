@@ -62,11 +62,6 @@ internal static partial class Program
                 view.CoreWebView2.Settings.AreDevToolsEnabled=false;
                 view.CoreWebView2.Settings.IsStatusBarEnabled=false;
                 view.CoreWebView2.NewWindowRequested+=(_,e)=>{ e.Handled=true; Process.Start(new ProcessStartInfo(e.Uri) { UseShellExecute=true }); };
-                view.CoreWebView2.WebMessageReceived+=async (_,e)=>
-                {
-                    if(e.Source.StartsWith(url,StringComparison.Ordinal) && e.TryGetWebMessageAsString()=="check-update")
-                        await CheckForUpdate(window,true);
-                };
                 view.CoreWebView2.Navigate(url);
             }
             catch(Exception ex)
@@ -75,7 +70,6 @@ internal static partial class Program
                 Process.Start(new ProcessStartInfo(url) { UseShellExecute=true });
                 MessageBox.Show(window,T("내장 브라우저를 열 수 없어 기본 브라우저로 열었습니다.\n이 창을 닫으면 제어판도 종료됩니다.\n\n","内蔵ブラウザを開けないため既定のブラウザで開きました。\nこのウィンドウを閉じるとコントロールパネルも終了します。\n\n","The built-in browser could not open, so the default browser was used.\nClosing this window also closes the control panel.\n\n")+ex.Message,AppTitle);
             }
-            _=Task.Run(()=>CheckForUpdate(window));
         };
         Application.Run(window);
         if(LanServer!=null) LanServer.StopAsync().GetAwaiter().GetResult();
