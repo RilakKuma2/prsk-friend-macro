@@ -171,9 +171,9 @@ internal static partial class Program
         while(DateTime.UtcNow<deadline)
         {
             if(StopRequested || File.Exists("artifacts/macro.stop")) throw new OperationCanceledException();
+            if(await DismissEmulatorOverlays()) continue;
             var activity=await Shell(ResumedActivity);
-            if(activity.Contains("com.google.android.gms") && (activity.Contains("MinuteMaid") || activity.Contains("SignIn")))
-            { await Shell("input keyevent 4"); await Task.Delay(1500); continue; }
+            if(await DismissForeignForeground(activity)) continue;
             await Snapshot(quiet:true);
             using(var screen=LoadCurrentScreen())
             {

@@ -338,6 +338,9 @@ select.field{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xml
 .gnum::-webkit-inner-spin-button,.gnum::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
 .grun-vms{font-size:11.5px;font-weight:600;color:var(--accent);padding:1px 7px;border-radius:6px;background:var(--surface)}
 .gdone-tag{font-size:11.5px;font-weight:600;color:var(--green);padding:1px 7px;border-radius:6px;background:var(--surface)}
+.gitem.invalid{background:var(--red-weak);box-shadow:0 0 0 1.5px var(--red) inset}
+.gitem.invalid .gcode{color:var(--red);text-decoration:line-through}
+.ginvalid-tag{font-size:11.5px;font-weight:700;color:var(--red);padding:1px 7px;border-radius:6px;background:var(--surface)}
 .gadd{background:var(--surface-2);border-radius:14px;padding:12px;margin-top:12px}
 .gadd .invf .field{background:var(--surface)}
 .gadd .invf.once .field{background:var(--orange-weak)}
@@ -1452,14 +1455,16 @@ function renderGlobalInv(){
   }else activeBox.style.display='none';
   const items=globalPoolData.items||[];
   $('#gInvList').innerHTML=items.length?items.map((it,k)=>{
-    const cls=(it.inFlight>0?' active':'')+(it.completed?' done':'');
+    const cls=it.invalid?' invalid':((it.inFlight>0?' active':'')+(it.completed?' done':''));
     const limCtl=it.mode==='once'
       ?`<span class="mini"><button data-glk="${k}" data-to="${it.limit-1}" ${it.limit-1<Math.max(1,it.rowDone)?'disabled':''} aria-label="${t('줄이기')}">−</button><input type="number" class="gnum" data-glin="${k}" min="${Math.max(1,it.rowDone)}" max="99" value="${it.limit}"><button data-glk="${k}" data-to="${it.limit+1}" ${it.limit>=99?'disabled':''} aria-label="${t('늘리기')}">+</button></span>`
       :`<span class="ptag">${t('영구')}</span>`;
-    const runBadge=it.inFlight>0
+    const runBadge=it.invalid
+      ?`<span class="ginvalid-tag">${t('잘못된 코드')}</span>`
+      :(it.inFlight>0
       ?`<span class="grun-vms">${esc(it.mode==='once'?t('{0}/{1} 완료 · {2}개 돌아가는 중 ({3})',it.rowDone,it.limit,it.inFlight,it.runningVms.map(nth).join(', ')):t('{0}개 완료 · {1}개 돌아가는 중 ({2})',it.rowDone,it.inFlight,it.runningVms.map(nth).join(', ')))}</span>`
       :(it.completed?`<span class="gdone-tag">${t('{0}/{1} 완료',it.rowDone,it.limit)}</span>`
-      :(it.rowDone>0?`<span class="grun-vms" style="color:var(--text-2)">${it.mode==='once'?t('{0}/{1} 완료',it.rowDone,it.limit):t('{0}개 완료',it.rowDone)}</span>`:''));
+      :(it.rowDone>0?`<span class="grun-vms" style="color:var(--text-2)">${it.mode==='once'?t('{0}/{1} 완료',it.rowDone,it.limit):t('{0}개 완료',it.rowDone)}</span>`:'')));
     return `<div class="gitem${cls}" data-idx="${k}" draggable="true">
       <span class="qdrag" aria-hidden="true">⋮⋮</span><span class="qn">${k+1}</span>
       <span class="gcode">${esc(it.code)}</span>${it.owner?`<span class="gowner">${esc(it.owner)}</span>`:''}

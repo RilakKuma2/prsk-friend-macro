@@ -105,6 +105,7 @@ internal static partial class Program
         if(!booted) throw new Exception("Emulator boot timeout. Account data was not reset.");
         if(!await LiveResolutionOk(Instance)) await EnsureResolution();
         LastGuard=DateTime.MinValue; await Guard();
+        await DismissEmulatorOverlays(force:true);
         var current=await Shell(ResumedActivity);
         if(!current.Contains(Package) && !current.Contains("com.google.android.gms"))
             await Shell($"monkey -p {Package} -c android.intent.category.LAUNCHER 1");
@@ -119,9 +120,9 @@ internal static partial class Program
         while(DateTime.UtcNow<deadline)
         {
             if(StopRequested || File.Exists("artifacts/macro.stop")) throw new OperationCanceledException();
+            if(await DismissEmulatorOverlays()) continue;
             var activity=await Shell(ResumedActivity);
-            if(activity.Contains("com.google.android.gms") && (activity.Contains("MinuteMaid") || activity.Contains("SignIn")))
-            { await Shell("input keyevent 4"); await Task.Delay(1500); continue; }
+            if(await DismissForeignForeground(activity)) continue;
             await Snapshot(quiet:true);
             using var screen=LoadCurrentScreen();
             if(await DismissNotice(screen)) { await Task.Delay(700); continue; }

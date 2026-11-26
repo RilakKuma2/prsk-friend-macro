@@ -629,6 +629,9 @@ internal static partial class Program
         var invitationStart=LoadStages().Single(s=>s.Name=="invitation").Start;
         var skipGachaSteps=stageSteps==null && ResumeSkipGacha?StepsForStage("gacha").Concat(StepsForStage("deck")).Select(s=>s.Name).ToHashSet():null;
         var gachaStart=LoadStages().Single(s=>s.Name=="gacha").Start;
+        var invalidInvite=JsonSerializer.Deserialize<Step>(File.ReadAllText("handlers.json"))!;
+        var inviteRejects=0;
+        var inviteRejectCode="";
         for(var stepIndex=0;stepIndex<selectedSteps.Count;stepIndex++)
         {
             var step=selectedSteps[stepIndex];
@@ -702,10 +705,10 @@ internal static partial class Program
                 await Guard();
                 if(DateTime.UtcNow-lastActivityCheck>TimeSpan.FromSeconds(5))
                 {
-                    var activity=await Shell(ResumedActivity);
-                    if(activity.Contains("com.google.android.gms") && (activity.Contains("MinuteMaid") || activity.Contains("SignIn")))
-                    { await Shell("input keyevent 4"); await Task.Delay(1200); }
                     lastActivityCheck=DateTime.UtcNow;
+                    if(await DismissEmulatorOverlays(force:true)) continue;
+                    var activity=await Shell(ResumedActivity);
+                    if(await DismissForeignForeground(activity)) continue;
                 }
                 await Snapshot(quiet:true);
                 double difference;
@@ -723,14 +726,52 @@ internal static partial class Program
                             Console.WriteLine("Continuous reading is unchecked; enabling and verifying before starting.");
                             await Shell("input tap 372 355"); await Task.Delay(500); continue;
                         }
-                        if(step.Name=="invite-register")
-                        {
-                            var invalid=JsonSerializer.Deserialize<Step>(File.ReadAllText("handlers.json"))!;
-                            if(Matches(screen,invalid)) { await RecordInvite("rejected",true); await Shell("input tap 480 420"); throw new Exception("Invitation rejected by the server. Field was verified; correct --code before resuming invite-code-focus."); }
-                        }
+                        if(step.Name=="invite-register") { inviteRejects=0; inviteRejectCode=""; }
                     }
                     else
                     {
+                    if(step.Name=="invite-register" && Matches(screen,invalidInvite))
+                    {
+                        var currentCode=InviteCode??"";
+                        if(!string.Equals(inviteRejectCode,currentCode,StringComparison.OrdinalIgnoreCase))
+                        { inviteRejectCode=currentCode; inviteRejects=0; }
+                        inviteRejects++;
+                        if(inviteRejects<=2)
+                        {
+                            Console.WriteLine($"Invitation code {currentCode} rejected; retrying ({inviteRejects}/2).");
+                            await Shell($"input tap {invalidInvite.X} {invalidInvite.Y}");
+                            await Task.Delay(700);
+                            VerifiedInviteCode=null;
+                            await Snapshot(quiet:true);
+                            using var afterToast=LoadCurrentScreen();
+                            var openIdx=selectedSteps.FindIndex(s=>s.Name=="invite-code-open");
+                            var submitIdx=selectedSteps.FindIndex(s=>s.Name=="invite-submit");
+                            var retryIdx=(openIdx>=0 && Matches(afterToast,selectedSteps[openIdx]))?openIdx:submitIdx;
+                            if(retryIdx>=0) { stepIndex=retryIdx-1; previous=null; recovered=true; break; }
+                            continue;
+                        }
+                        await RecordInvite("rejected",true);
+                        await Shell($"input tap {invalidInvite.X} {invalidInvite.Y}");
+                        await Task.Delay(700);
+                        inviteRejects=0; inviteRejectCode=""; VerifiedInviteCode=null;
+                        if(RejectInvalidInvite(currentCode))
+                        {
+                            Console.WriteLine($"Invitation code {currentCode} marked invalid after 2 retries; switching to next code {InviteCode}.");
+                            await Snapshot(quiet:true);
+                            using var afterToast=LoadCurrentScreen();
+                            var openIdx=selectedSteps.FindIndex(s=>s.Name=="invite-code-open");
+                            var submitIdx=selectedSteps.FindIndex(s=>s.Name=="invite-submit");
+                            var retryIdx=(openIdx>=0 && Matches(afterToast,selectedSteps[openIdx]))?openIdx:submitIdx;
+                            if(retryIdx>=0) { stepIndex=retryIdx-1; previous=null; recovered=true; break; }
+                            continue;
+                        }
+                        Console.WriteLine($"Invitation code {currentCode} marked invalid after 2 retries; no next code available.");
+                        await Shell("input tap 388 318");
+                        await Task.Delay(600);
+                        var backIdx=selectedSteps.FindIndex(s=>s.Name=="invite-back-friends");
+                        if(backIdx>=0) { stepIndex=backIdx-1; previous=null; recovered=true; break; }
+                        return;
+                    }
                     if(eventStoryStep && await DismissStoryReceipt(screen)) continue;
                     if(eventStoryStep && await DismissStoryReward(screen))
                     {
@@ -1051,7 +1092,7 @@ internal static partial class Program
             // Deliberately one screenshot every 30 seconds, not per song/frame.
             for(var i=0;i<30 && !StopRequested;i++) { if(File.Exists("artifacts/macro.stop")) StopRequested=true; await Task.Delay(1000); }
             if(StopRequested) throw new OperationCanceledException();
-            await Guard(); await Snapshot(quiet:true);
+            await Guard(); await DismissEmulatorOverlays(force:true); await Snapshot(quiet:true);
             using var screen=LoadCurrentScreen();
             if(IsAutoEnd(screen)) { Console.WriteLine("Auto completion detected from Miku face fragment."); await SaveCheckpoint("auto-live-started","executed"); return; }
             if(Matches(screen,unlock)) return;
@@ -1115,6 +1156,7 @@ internal static partial class Program
             else if(await DismissNotice(screen) || await DismissTutorialPanel(screen)) { lastKnown=DateTime.UtcNow; }
             else
             {
+                if(await DismissEmulatorOverlays()) continue;
                 listFrames=0;
                 if(DateTime.UtcNow-lastKnown>TimeSpan.FromSeconds(45)) throw new Exception("Unknown story screen for 45 seconds; paused. See artifacts/error.webp.");
             }
@@ -1170,6 +1212,7 @@ internal static partial class Program
     static async Task AdvanceNarration(Step menu,Step? afterStory=null)
     {
         if(!RapidStorySteps.Contains(menu.Name)) throw new Exception("Rapid dialogue taps are restricted to named story steps.");
+        await DismissEmulatorOverlays(force:true);
         var activity=await Shell(ResumedActivity);
         if(!activity.Contains(Package)) return;
         var tapping=ContinuousStoryTaps(15000);
@@ -1511,7 +1554,7 @@ internal static partial class Program
         if(VerifiedInviteCode==null || VerifiedInviteCode!=InviteCode)
         {
             await Shell("input tap 501 267");
-            await Task.Delay(400);
+            for(var wait=0;wait<10 && await FocusedInput()==null;wait++) await Task.Delay(300);
             await EnterInvitationCode();
         }
         await Shell("input tap 570 318");

@@ -105,8 +105,9 @@ internal static partial class Program
         while(DateTime.UtcNow<deadline)
         {
             if(StopRequested || File.Exists("artifacts/macro.stop")) throw new OperationCanceledException();
+            if(await DismissEmulatorOverlays()) continue;
             var activity=await Shell(ResumedActivity);
-            if(activity.Contains("com.google.android.gms")) { await Shell("input keyevent 4"); await Task.Delay(1000); continue; }
+            if(await DismissForeignForeground(activity)) continue;
             await Snapshot(quiet:true);
             using var screen=LoadCurrentScreen();
             bool Is(string name)=>Matches(screen,flow.Single(s=>s.Name==name));

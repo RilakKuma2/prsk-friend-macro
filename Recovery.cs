@@ -1,7 +1,91 @@
 using System.Drawing;
+using System.Text.RegularExpressions;
 
 internal static partial class Program
 {
+    static readonly HashSet<string> SafeOverlayPackages=new(StringComparer.OrdinalIgnoreCase)
+    {
+        Package,"com.android.systemui","android","com.android.shell","com.google.android.gms",
+        "com.android.permissioncontroller","com.google.android.permissioncontroller"
+    };
+    const string WindowOverlayQuery="dumpsys window windows | grep -E 'Window #|package=|appop=|ty=|mViewVisibility=|mHasSurface=|isReadyForDisplay' || true";
+    static DateTime LastOverlayCheck=DateTime.MinValue;
+
+    static IReadOnlyList<string> FindVisibleOverlayPackages(string dumpsysOutput)
+    {
+        var found=new List<string>();
+        foreach(var block in Regex.Split(dumpsysOutput,@"(?m)^(?=\s*Window #\d+)"))
+        {
+            if(!block.Contains("Window #")) continue;
+            var isOverlay=block.Contains("ty=APPLICATION_OVERLAY") || block.Contains("ty=SYSTEM_ALERT")
+                || block.Contains("ty=SYSTEM_OVERLAY") || block.Contains("ty=PHONE")
+                || block.Contains("ty=PRIORITY_PHONE") || block.Contains("ty=SYSTEM_ERROR")
+                || block.Contains("appop=SYSTEM_ALERT_WINDOW");
+            if(!isOverlay || block.Contains("ty=INPUT_METHOD")) continue;
+            if(!block.Contains("mViewVisibility=0x0") || !block.Contains("mHasSurface=true")) continue;
+            if(block.Contains("isReadyForDisplay()=false")) continue;
+            var m=Regex.Match(block,@"package=([A-Za-z0-9._]+)");
+            if(!m.Success) m=Regex.Match(block,@"Window\{[0-9a-fA-F]+\s+u\d+\s+([A-Za-z0-9._]+)");
+            if(!m.Success) continue;
+            var pkg=m.Groups[1].Value;
+            if(SafeOverlayPackages.Contains(pkg)) continue;
+            if(!found.Contains(pkg,StringComparer.OrdinalIgnoreCase)) found.Add(pkg);
+        }
+        return found;
+    }
+
+    // Dismisses full-screen / popup emulator ad overlays (e.g. MuMu's com.mumu.store SYSTEM_ALERT_WINDOW)
+    // that cover the game while leaving the game's ResumedActivity unchanged.
+    static async Task<bool> DismissEmulatorOverlays(bool force=false)
+    {
+        if(!force && DateTime.UtcNow-LastOverlayCheck<TimeSpan.FromSeconds(4)) return false;
+        LastOverlayCheck=DateTime.UtcNow;
+        string output;
+        try { output=await Shell(WindowOverlayQuery); }
+        catch { return false; }
+        var overlays=FindVisibleOverlayPackages(output);
+        if(overlays.Count==0) return false;
+        foreach(var pkg in overlays)
+        {
+            Console.WriteLine($"Emulator overlay detected ({pkg}); force-stopping to dismiss.");
+            try { await Shell($"am force-stop {pkg}"); } catch { }
+        }
+        await Task.Delay(500);
+        return true;
+    }
+
+    static async Task<bool> DismissForeignForeground(string activity,bool relaunchGame=true)
+    {
+        if(string.IsNullOrWhiteSpace(activity)) return false;
+        if(activity.Contains("com.google.android.gms") && (activity.Contains("MinuteMaid") || activity.Contains("SignIn")))
+        {
+            await Shell("input keyevent 4");
+            await Task.Delay(1200);
+            return true;
+        }
+        if(activity.Contains(Package) || activity.Contains("com.google.android.gms") || activity.Contains("permissioncontroller"))
+            return false;
+        var m=Regex.Match(activity,@"\bu\d+\s+([A-Za-z0-9._]+)/");
+        var pkg=m.Success?m.Groups[1].Value:"";
+        var lower=pkg.ToLowerInvariant();
+        if(pkg.Length>0 && !SafeOverlayPackages.Contains(pkg)
+            && !lower.Contains("launcher") && !lower.Contains("lawnchair") && !lower.Contains("home") && !lower.Contains("settings"))
+        {
+            Console.WriteLine($"Foreign activity detected ({pkg}); force-stopping and returning to game.");
+            try { await Shell($"am force-stop {pkg}"); } catch { }
+        }
+        else
+        {
+            Console.WriteLine($"Foreground left game ({(pkg.Length>0?pkg:"unknown")}); returning to game.");
+        }
+        if(relaunchGame)
+        {
+            await Shell($"monkey -p {Package} -c android.intent.category.LAUNCHER 1");
+            await Task.Delay(1500);
+        }
+        return true;
+    }
+
     static DateTime? TitleVisibleSince;
     static int TitleRestartCount;
     static bool TitleVmRebooted;
@@ -116,9 +200,9 @@ internal static partial class Program
         while(DateTime.UtcNow<deadline)
         {
             if(StopRequested || File.Exists("artifacts/macro.stop")) throw new OperationCanceledException();
+            if(await DismissEmulatorOverlays()) continue;
             var activity=await Shell(ResumedActivity);
-            if(activity.Contains("com.google.android.gms") && (activity.Contains("MinuteMaid") || activity.Contains("SignIn")))
-            { await Shell("input keyevent 4"); await Task.Delay(1500); continue; }
+            if(await DismissForeignForeground(activity)) continue;
             if(!activity.Contains(Package))
             { await Shell($"monkey -p {Package} -c android.intent.category.LAUNCHER 1"); await Task.Delay(2500); continue; }
             await Snapshot(quiet:true);

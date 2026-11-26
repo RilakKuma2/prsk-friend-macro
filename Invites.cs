@@ -325,9 +325,9 @@ internal static partial class Program
         Console.WriteLine($"Cleared {removed} uncompleted invitation record(s) before restarting from scratch.");
     }
 
-    record GlobalPoolItem(string Code,string Mode,int? Limit,DateTimeOffset Added);
+    record GlobalPoolItem(string Code,string Mode,int? Limit,DateTimeOffset Added,bool Invalid=false);
     record GlobalPoolFile(bool Enabled,List<GlobalPoolItem> Items,bool ExtraLoopWhenEmpty=false);
-    record GlobalPoolItemStats(string Code,string Mode,int? Limit,DateTimeOffset Added,string? Owner,int RowDone,int Done,int InFlight,int Projected,int[] RunningVms,bool Completed);
+    record GlobalPoolItemStats(string Code,string Mode,int? Limit,DateTimeOffset Added,string? Owner,int RowDone,int Done,int InFlight,int Projected,int[] RunningVms,bool Completed,bool Invalid=false);
 
     static string GlobalPoolPath=>Path.Combine(Workspace,"local","global-invites.json");
     static T WithGlobalInviteLock<T>(Func<T> action)
@@ -389,7 +389,11 @@ internal static partial class Program
             int rowDone;
             int[] vms;
             bool completed;
-            if(item.Mode=="permanent")
+            if(item.Invalid)
+            {
+                rowDone=0; vms=[]; completed=false;
+            }
+            else if(item.Mode=="permanent")
             {
                 rowDone=rd; remDone[c]=0;
                 vms=[..rf]; rf.Clear();
@@ -408,16 +412,16 @@ internal static partial class Program
             var done=cumDone.GetValueOrDefault(c)+rowDone;
             cumDone[c]=done;
             var projected=done+inFlight;
-            return new GlobalPoolItemStats(item.Code,item.Mode,item.Limit,item.Added,owners.GetValueOrDefault(c),rowDone,done,inFlight,projected,vms,completed);
+            return new GlobalPoolItemStats(item.Code,item.Mode,item.Limit,item.Added,owners.GetValueOrDefault(c),rowDone,done,inFlight,projected,vms,completed,item.Invalid);
         }).ToList();
     }
 
     static int? GlobalPoolCapacity(int? excludeInstance=null)
     {
         var pool=ReadGlobalPool();
-        if(pool.Items.Any(i=>i.Mode=="permanent")) return null;
+        if(pool.Items.Any(i=>!i.Invalid && i.Mode=="permanent")) return null;
         var stats=ComputeGlobalPoolStats(pool,excludeInstance);
-        return stats.Sum(s=>s.Limit is { } lim?Math.Max(0,lim-(s.RowDone+s.InFlight)):0);
+        return stats.Where(s=>!s.Invalid).Sum(s=>s.Limit is { } lim?Math.Max(0,lim-(s.RowDone+s.InFlight)):0);
     }
 
     static InviteSetting? EnsureGlobalInvite(string artifacts,int instance)=>WithGlobalInviteLock(()=>
@@ -431,7 +435,7 @@ internal static partial class Program
             if(ActiveInviteUses(artifacts,current)>0 ||
                 (CurrentLoopInvite(artifacts) is { } cli && cli.Code==current.Code && cli.Time>=current.Updated && cli.Result is "confirming" or "registered"))
                 return current;
-            var codeRows=pool.Items.Where(i=>i.Code==current.Code).ToList();
+            var codeRows=pool.Items.Where(i=>!i.Invalid && i.Code==current.Code).ToList();
             if(current.Global && codeRows.Count>0)
             {
                 if(codeRows.Any(i=>i.Mode=="permanent")) return current;
@@ -448,7 +452,7 @@ internal static partial class Program
             }
         }
         var stats=ComputeGlobalPoolStats(pool,excludeInstance:instance);
-        var nextItem=stats.FirstOrDefault(s=>s.Mode=="permanent" || (s.Limit is { } lim && (s.RowDone+s.InFlight)<lim));
+        var nextItem=stats.FirstOrDefault(s=>!s.Invalid && (s.Mode=="permanent" || (s.Limit is { } lim && (s.RowDone+s.InFlight)<lim)));
         InviteSetting? assigned=null;
         WithInviteLock(artifacts,()=>
         {
@@ -477,6 +481,47 @@ internal static partial class Program
         }
         InviteCode=saved?.Code; InviteMode=saved?.Mode;
         return InviteCode!=null;
+    }
+
+    // Marks an invitation code as invalid after repeated server rejections, removes it from the active pool/queue,
+    // and advances to the next available code if any.
+    static bool RejectInvalidInvite(string badCode)
+    {
+        if(InviteMode=="cli" || string.IsNullOrWhiteSpace(badCode)) return false;
+        if(ReadGlobalPool().Enabled)
+        {
+            WithGlobalInviteLock(()=>
+            {
+                var pool=ReadGlobalPool();
+                var changed=false;
+                var next=pool.Items.Select(i=>
+                {
+                    if(!i.Invalid && string.Equals(i.Code,badCode,StringComparison.OrdinalIgnoreCase)) { changed=true; return i with { Invalid=true }; }
+                    return i;
+                }).ToList();
+                if(changed) WriteGlobalPool(pool with { Items=next });
+                WithInviteLock("artifacts",()=>
+                {
+                    if(ReadInviteSetting("artifacts") is { } s && string.Equals(s.Code,badCode,StringComparison.OrdinalIgnoreCase))
+                        File.Delete(Path.Combine("artifacts",InviteFile));
+                    return 0;
+                });
+                return 0;
+            });
+        }
+        else
+        {
+            WithInviteLock("artifacts",()=>
+            {
+                if(ReadInviteSetting("artifacts") is { } s && string.Equals(s.Code,badCode,StringComparison.OrdinalIgnoreCase))
+                    File.Delete(Path.Combine("artifacts",InviteFile));
+                var queue=ReadInviteQueue("artifacts");
+                var filtered=queue.Where(q=>!string.Equals(q.Code,badCode,StringComparison.OrdinalIgnoreCase)).ToList();
+                if(filtered.Count!=queue.Count) WriteInviteQueue("artifacts",filtered);
+                return 0;
+            });
+        }
+        return RefreshInviteCode() && !string.Equals(InviteCode,badCode,StringComparison.OrdinalIgnoreCase);
     }
 
     // Ends at the success dialog: after stories, reward popups can cover the "入力済み" label,
