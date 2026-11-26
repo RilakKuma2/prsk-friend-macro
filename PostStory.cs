@@ -50,9 +50,9 @@ internal static partial class Program
                 CheckPostStoryStop();
                 await Snapshot(quiet:true);
                 using var screen=LoadCurrentScreen();
+                if(await CloseRewardsDuringStories(screen)) { attempt--; continue; }
                 if(!IsEventStoryList(screen))
                 {
-                    if(await CloseRewardsBeforeVerification(screen,"event-stories-complete")) { await OpenEventStories(); continue; }
                     if(await DismissNotice(screen)) { await Task.Delay(500); attempt--; continue; }
                     throw new Exception("Story list lost while locating its upper edge.");
                 }
@@ -68,9 +68,9 @@ internal static partial class Program
                 CheckPostStoryStop();
                 await Snapshot(quiet:true);
                 using var screen=LoadCurrentScreen();
+                if(await CloseRewardsDuringStories(screen)) { page--; continue; }
                 if(!IsEventStoryList(screen))
                 {
-                    if(await CloseRewardsBeforeVerification(screen,"event-stories-complete")) { await OpenEventStories(); continue; }
                     if(await DismissNotice(screen)) { await Task.Delay(500); page--; continue; }
                     throw new Exception("Story list lost during full SKIP verification.");
                 }
@@ -95,7 +95,11 @@ internal static partial class Program
     // Registering after stories grants the story missions at once: "以下のアイテムを受け取りました。" covers the mission page.
     static readonly Step ReceivedItemsTitle=new("items-received-title","templates/items-received-title.png",0,0,340,42,280,26,"checkpoint");
     static readonly Step ReceivedItemsOk=new("items-received-ok","templates/items-received-ok.png",480,491,420,478,120,28,"tap");
+    static readonly Step InviteRewardTicket=new("invite-mission-reward-ticket","templates/invite-mission-reward-ticket.png",480,420,445,222,70,55,"tap");
     static bool IsReceivedItems(Bitmap screen)=>Matches(screen,ReceivedItemsTitle) && Matches(screen,ReceivedItemsOk);
+    static bool IsInviteRewardBanner(Bitmap screen)=>Matches(screen,InviteRewardTicket);
+    static bool IsAnyInviteReward(Bitmap screen)=>IsReceivedItems(screen) || IsInviteRewardBanner(screen);
+    static (int X,int Y) RewardDismissTap(Bitmap screen)=>IsReceivedItems(screen)?(ReceivedItemsOk.X,ReceivedItemsOk.Y):(InviteRewardTicket.X,InviteRewardTicket.Y);
 
     // The dialog appears once the invitation is registered and the stories are read. Success still requires the
     // 20-episode verification. The dialog is always captured and closed; seen before the verification it is
@@ -112,9 +116,10 @@ internal static partial class Program
     }
     static async Task<bool> CloseRewardsBeforeVerification(Bitmap screen,string step)
     {
-        if(!IsReceivedItems(screen) || !RewardsEligible(step)) return false;
+        if(!IsAnyInviteReward(screen) || !RewardsEligible(step)) return false;
         SeenRewards=SaveRewardsCapture();
-        await Shell($"input tap {ReceivedItemsOk.X} {ReceivedItemsOk.Y}"); await Task.Delay(1000);
+        var (tx,ty)=RewardDismissTap(screen);
+        await Shell($"input tap {tx} {ty}"); await Task.Delay(1000);
         Console.WriteLine($"Invitation rewards dialog captured ({SeenRewards}) and closed; verifying all 20 episodes before counting success.");
         return true;
     }
@@ -122,16 +127,18 @@ internal static partial class Program
     static async Task<bool> CloseRewardsDuringStories(Bitmap screen)
     {
         if(await CloseRewardsBeforeVerification(screen,"event-stories-complete")) return true;
-        if(!IsReceivedItems(screen)) return false;
-        await Shell($"input tap {ReceivedItemsOk.X} {ReceivedItemsOk.Y}"); await Task.Delay(1000);
+        if(!IsAnyInviteReward(screen)) return false;
+        var (tx,ty)=RewardDismissTap(screen);
+        await Shell($"input tap {tx} {ty}"); await Task.Delay(1000);
         Console.WriteLine("Received-items dialog closed during stories.");
         return true;
     }
     static async Task CheckRewards(Bitmap screen)
     {
-        if(!IsReceivedItems(screen)) return;
+        if(!IsAnyInviteReward(screen)) return;
         var image=SaveRewardsCapture();
-        await Shell($"input tap {ReceivedItemsOk.X} {ReceivedItemsOk.Y}"); await Task.Delay(1000);
+        var (tx,ty)=RewardDismissTap(screen);
+        await Shell($"input tap {tx} {ty}"); await Task.Delay(1000);
         await RecordRewards(image);
         throw new RewardsReceived();
     }

@@ -913,6 +913,27 @@ internal static partial class Program
         return T("전역 목록에서 지웠어요.","グローバル一覧から削除しました。","Removed from the global list.");
     }
 
+    static string ClearCompletedGlobalPool()
+    {
+        var removed=WithGlobalInviteLock(()=>
+        {
+            var pool=ReadGlobalPool();
+            var stats=ComputeGlobalPoolStats(pool);
+            var next=new List<GlobalPoolItem>();
+            var count=0;
+            for(var i=0;i<pool.Items.Count;i++)
+            {
+                if(stats[i].Completed) count++;
+                else next.Add(pool.Items[i]);
+            }
+            if(count>0) WriteGlobalPool(pool with { Items=next });
+            return count;
+        });
+        return removed>0
+            ?T($"완료된 항목 {removed}건을 목록에서 비웠어요.",$"完了した{removed}件を一覧から消去しました。",$"Cleared {removed} completed item(s) from the list.")
+            :T("비울 완료 항목이 없어요.","消去できる完了項目がありません。","No completed items to clear.");
+    }
+
     static async Task<string> SetGlobalPoolLimit(int index,int limit)
     {
         if(limit is <1 or >MaxGlobalOnceUses) throw new ArgumentException(T($"횟수는 1~{MaxGlobalOnceUses}회예요.",$"回数は1〜{MaxGlobalOnceUses}回です。",$"Uses must be 1 to {MaxGlobalOnceUses}."));

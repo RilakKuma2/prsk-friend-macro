@@ -141,6 +141,7 @@ internal static partial class Program
         api.MapPost("/invites/global/remove",(QueueRemoveRequest request)=>Ok(RemoveGlobalPoolItem(request.Index)));
         api.MapPost("/invites/global/limit",async(InviteLimitRequest request)=>Ok(await SetGlobalPoolLimit(request.Index,request.Limit)));
         api.MapPost("/invites/global/reorder",(InviteReorderRequest request)=>Ok(ReorderGlobalPool(request.From,request.To)));
+        api.MapPost("/invites/global/clear-completed",()=>Ok(ClearCompletedGlobalPool()));
         api.MapGet("/instances/{n:int}/invite",(int n)=>Results.Json(GetInvite(n)));
         api.MapPost("/instances/{n:int}/invite",async(int n,InviteRequest request)=>Ok(await SetInvite(n,request.Code,request.Mode,request.Limit)));
         api.MapPost("/instances/{n:int}/invite/queue",async(int n,InviteRequest request)=>Ok(await QueueInvite(n,request.Code,request.Mode,request.Limit)));

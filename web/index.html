@@ -444,6 +444,7 @@ select.field{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xml
   <button class="btn tonal" data-run="run">처음부터</button>
   <button class="btn tonal" id="invSel">초대 코드</button>
   <button class="btn danger" id="stopSel">중지</button>
+  <button class="btn danger" id="quitSel">인스턴스 종료</button>
 </div>
 
 <div class="scrim" id="scrim"></div>
@@ -654,7 +655,7 @@ select.field{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xml
     <div class="switch" id="gInvSwitch" style="padding-top:4px"><div>전역 초대 코드 자동 배정<small>켜면 인스턴스 개별 코드 대신 아래 우선순위 목록에서 자동 배정해요</small></div><div class="sw"></div></div>
     <div class="switch" id="gInvExtraSwitch" style="padding-top:4px;border-top:1px solid var(--fill)"><div>다 채운 뒤 초대 없이 1회 더 진행<small>켜면 목표 완료 후 새 계정으로 초대 입력창에서 대기하고, 끄면 바로 멈춰요</small></div><div class="sw"></div></div>
     <div class="gactive" id="gInvActiveBox" style="display:none"></div>
-    <div class="label" style="margin-top:8px">우선순위 목록 <span style="font-weight:400">· 숫자 표시는 진행 포함(완료)</span></div>
+    <div class="label" style="margin-top:8px;display:flex;align-items:center;justify-content:space-between;gap:8px"><span>우선순위 목록 <span style="font-weight:400">· 숫자 표시는 진행 포함(완료)</span></span><button type="button" class="btn tonal" id="gInvClearDoneBtn" title="완료된 항목 비우기" aria-label="완료된 항목 비우기" style="height:28px;padding:0 10px;font-size:12px;gap:5px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg><span>완료 비우기</span></button></div>
     <div id="gInvList"></div>
     <div class="gadd">
       <div class="label" style="margin:0 0 8px">코드 추가</div>
@@ -1086,6 +1087,8 @@ $('#runGo').onclick=async()=>{
 };
 $('#stopSel').onclick=async()=>{const targets=[...state.sel];if(!await confirmBox(t('매크로를 멈출까요?'),t('{0} · 현재 단계가 끝나면 멈추고 게임은 그대로 둡니다.',nths(targets)),t('중지'),true))return;
   for(const n of targets)await act(()=>api(`/instances/${n}/stop`,{}));deselect(targets);toast(t('{0}대 중지 요청했어요',targets.length))};
+$('#quitSel').onclick=async()=>{const targets=[...state.sel];if(!await confirmBox(t('인스턴스를 종료할까요?'),t('{0} · 실행 중인 매크로를 멈추고 VM을 종료합니다.',nths(targets)),t('인스턴스 종료'),true))return;
+  for(const n of targets)await act(()=>api(`/instances/${n}/vm/quit`,{}));deselect(targets);toast(t('{0}대 종료 요청했어요',targets.length));refresh()};
 /* Invitation codes for every selected instance: replace the active code, or queue it after the current ones. */
 const bInv=invField('#bInv',()=>{$('#bInvHint').textContent=!bInv.once?t('지울 때까지 계속 이 코드로 초대해요'):bInv.limit>1?t('{0}번 등록되면 다음 코드로 넘어가요',bInv.limit):t('한 번 등록되면 다음 코드로 넘어가요')});
 function openInvites(targets){
@@ -1454,6 +1457,7 @@ function renderGlobalInv(){
     }).join('');
   }else activeBox.style.display='none';
   const items=globalPoolData.items||[];
+  const clrBtn=$('#gInvClearDoneBtn');if(clrBtn)clrBtn.disabled=!items.some(it=>it.completed);
   $('#gInvList').innerHTML=items.length?items.map((it,k)=>{
     const cls=it.invalid?' invalid':((it.inFlight>0?' active':'')+(it.completed?' done':''));
     const limCtl=it.mode==='once'
@@ -1486,6 +1490,13 @@ async function loadGlobalInv(){try{globalPoolData=await api('/invites/global');r
 $('#globalInvBtn').onclick=()=>{show('#globalInvSheet');loadGlobalInv()};
 $('#gInvSwitch').onclick=async()=>{await act(()=>api('/invites/global/toggle',{enabled:!state.globalInvite}));loadGlobalInv()};
 $('#gInvExtraSwitch').onclick=async()=>{await act(()=>api('/invites/global/toggle',{extraLoopWhenEmpty:!state.globalExtraLoop}));loadGlobalInv()};
+$('#gInvClearDoneBtn').onclick=async()=>{
+  const doneCount=(globalPoolData?.items||[]).filter(it=>it.completed).length;
+  if(!doneCount)return;
+  if(!await confirmBox(t('완료된 항목을 비울까요?'),t('완료된 {0}건을 목록에서만 지워요. 닉네임과 누적 횟수 기록은 그대로 남아요.',doneCount),t('비우기'),true))return;
+  await act(()=>api('/invites/global/clear-completed',{}));
+  loadGlobalInv();
+};
 $('#gInvAddBtn').onclick=async()=>{
   const code=gInvF.code();
   if(!/^[A-Za-z0-9]{15}$/.test(code))return toast(t('초대 코드는 영문/숫자 15자예요'),true);
